@@ -1,0 +1,11 @@
+datasets/
+experiments/
+*.pth
+*.log
+__pycache__/
+.DS_Store
+nohup.out
+wandb/
+*.jpg
+Kuzushiji_Restoration/
+stage2_restoration/lama/
