@@ -12,3 +12,4 @@ stage2_restoration/lama/
 outputs/
 *.zip
 *.png
+*.csv
