@@ -1,0 +1,11 @@
+prefix=/home/ti/Documents/imoto/restormer_unet_color/env
+exec_prefix=/home/ti/Documents/imoto/restormer_unet_color/env
+libdir=/home/ti/Documents/imoto/restormer_unet_color/env/lib
+includedir=/home/ti/Documents/imoto/restormer_unet_color/env/include
+
+Name: uuid
+Description: Universally unique id library
+Version: 2.32.1
+Requires:
+Cflags: -I${includedir}/uuid
+Libs: -L${libdir} -luuid
