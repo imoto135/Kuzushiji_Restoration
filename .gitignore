@@ -9,3 +9,4 @@ wandb/
 *.jpg
 Kuzushiji_Restoration/
 stage2_restoration/lama/
+outputs/

@@ -117,48 +117,43 @@ def mae_metric(pred, target):
     return torch.abs(pred - target).mean().item()
 
 
-def build_model(model_name, encoder_name, encoder_weights, decoder_attention_type=None, encoder_depth=4):
+def build_model(model_name, encoder_name, encoder_weights, decoder_attention_type=None, encoder_depth=5, half_decoder=False):
     # HRNetなどの一部のモデルは depth=4 で学習されている場合があるため調整
-    # 引数で指定された場合はそれを優先するが、HRNetの場合は4が推奨されることが多い
-    # 学習スクリプトに合わせて、引数の encoder_depth をそのまま使用する形にします
-    
     params = dict(encoder_name=encoder_name, encoder_weights=encoder_weights or None,
                   in_channels=3, classes=1, encoder_depth=encoder_depth)
     
-    # 【追加】デコーダーのアテンションタイプを指定 (scseなど)
     if decoder_attention_type is not None:
         params["decoder_attention_type"] = decoder_attention_type
 
     if encoder_depth == 3:
-        # 【追加】depth=3 の場合のデコーダーチャンネル設定
         params["decoder_channels"] = (256, 128, 64)
     elif encoder_depth == 4:
-        # depth=4 の場合のデコーダーチャンネル設定
         params["decoder_channels"] = (256, 128, 64, 32)
     elif encoder_depth == 5:
-        # depth=5 の場合のデコーダーチャンネル設定 (明示的に指定)
         params["decoder_channels"] = (256, 128, 64, 32, 16)
 
-    # 【修正】引数の model_name を尊重するように戻す
+    # half_decoder フラグが立っていればチャンネル数を半分にする
+    if half_decoder:
+        params["decoder_channels"] = tuple(max(1, c // 2) for c in params["decoder_channels"])
+
     if model_name == "unet":
         model = smp.Unet(**params)
     elif model_name == "unet++":
         model = smp.UnetPlusPlus(**params)
     else:
-        # attention_unet は元々 attention を持っているが、追加で指定も可能
         model = smp.Unet(decoder_attention_type="scse", **params)
     return model.to(DEVICE)
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Predict and evaluate Unet soft masks")
-    parser.add_argument("--data-dir", type=str, default="Kuzushiji_Restoration/datasets/dataset_final_hiragana")
+    parser.add_argument("--data-dir", type=str, default="datasets/hiragana_dataset")
     
     # 【変更】指定されたベースラインモデルの重み
-    parser.add_argument("--weights", type=str, default="Kuzushiji_Restoration/experiments/segmentation/baseline/unet_baseline.pth")
+    parser.add_argument("--weights", type=str, default="Kuzushiji_Restoration/experiments/segmentation/last/best.pth")
     
     # 【変更】学習スクリプトに合わせてモデルを unet に変更
-    parser.add_argument("--model", choices=["unet", "unet++", "attention_unet"], default="unet")
+    parser.add_argument("--model", choices=["unet", "unet++", "attention_unet"], default="unet++")
     
     # エンコーダー (se_resnext50_32x4d)
     parser.add_argument("--encoder-name", type=str, default="se_resnext50_32x4d")
@@ -169,7 +164,7 @@ def parse_args():
     parser.add_argument("--num-workers", type=int, default=2)
     
     # 【変更】出力先ディレクトリを baseline 用に変更
-    parser.add_argument("--output-dir", type=str, default="Kuzushiji_Restoration/experiments/segmentation/baseline/unet")
+    parser.add_argument("--output-dir", type=str, default="Kuzushiji_Restoration/experiments/segmentation/baseline/unet++")
     
     parser.add_argument("--wandb-project", type=str, default="Kuzushiji_Restoration")
     parser.add_argument("--wandb-entity", type=str, default=None)
@@ -192,7 +187,12 @@ def parse_args():
 
 def main():
     args = parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", force=True)
+    # logging.basicConfig の `force` は Python >=3.8 でのみサポートされるため互換処理
+    try:
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", force=True)
+    except (TypeError, ValueError):
+        # Python 3.7 等では `force` を渡さずに初期化
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     use_wandb = not args.no_wandb
     scse_tag = "_scSE" if args.use_scse else ""
@@ -203,7 +203,9 @@ def main():
         test_table = wandb.Table(columns=columns)
 
     decoder_attention_type = 'scse' if args.use_scse else None
-    model = build_model(args.model, args.encoder_name, args.encoder_weights, decoder_attention_type, args.encoder_depth)
+    # build_model に half-decoder フラグを渡す
+    model = build_model(args.model, args.encoder_name, args.encoder_weights, decoder_attention_type, args.encoder_depth, half_decoder=args.half_decoder_channels)
+
     if args.head_dropout > 0:
         import torch.nn as nn
         logging.info(f"Inserting Dropout2d(p={args.head_dropout}) before segmentation head to match state_dict.")
@@ -213,22 +215,59 @@ def main():
         )
 
     logging.info(f"Loading weights from {args.weights}")
-    state = torch.load(args.weights, map_location=DEVICE)
-    model.load_state_dict(state)
+
+    def _unwrap_state_dict(ckpt):
+        # ckpt が辞書なら一般的なキーを探して state_dict を取得
+        if isinstance(ckpt, dict):
+            for k in ("state_dict", "model_state_dict", "model", "best_model"):
+                if k in ckpt:
+                    return ckpt[k]
+        return ckpt
+
+    def _strip_module_prefix(sd):
+        new_sd = {}
+        for k, v in sd.items():
+            new_sd[k.replace("module.", "")] = v
+        return new_sd
+
+    ckpt = torch.load(args.weights, map_location=DEVICE)
+    state_dict = _unwrap_state_dict(ckpt)
+
+    if not isinstance(state_dict, dict):
+        raise RuntimeError("Loaded checkpoint does not contain a state_dict-like mapping.")
+
+    # 一部の checkpoint は 'module.' プレフィックスが付いているので除去
+    try:
+        sample_val = next(iter(state_dict.values()))
+        # 値がテンソルであればそのまま state_dict と判断
+        state_dict = _strip_module_prefix(state_dict)
+    except Exception:
+        # 何か変ならそのまま試す
+        state_dict = _strip_module_prefix(state_dict)
+
+    # ロードを試行（strict -> fallback non-strict）
+    try:
+        model.load_state_dict(state_dict)
+        logging.info("Weights loaded (strict=True).")
+    except Exception as e:
+        logging.warning(f"Strict load failed: {e}. Retrying with strict=False (partial load allowed).")
+        model.load_state_dict(state_dict, strict=False)
+        logging.info("Weights loaded (strict=False).")
+
     model.eval()
     if use_wandb:
         wandb.watch(model, log="all", log_freq=100)
 
     transform = build_transforms(args.image_size)
-    subsets = ["test"]
+    subsets = ["val"]
 
     mean = np.array([0.485, 0.456, 0.406])
     std = np.array([0.229, 0.224, 0.225])
 
     for subset in subsets:
         logging.info(f"Processing subset: {subset}")
-        img_dir = os.path.join(args.data_dir, "lq5", subset)
-        mask_dir = os.path.join(args.data_dir, "mask_gt", subset)
+        img_dir = os.path.join(args.data_dir, "lq", subset)
+        mask_dir = os.path.join(args.data_dir, "gt_mask", subset)
         out_dir = os.path.join(args.output_dir, subset)
         os.makedirs(out_dir, exist_ok=True)
 
