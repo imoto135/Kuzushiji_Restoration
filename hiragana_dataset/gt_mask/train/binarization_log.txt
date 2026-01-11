@@ -1,0 +1,9 @@
+2025-10-25 01:38:27,630 [INFO] --- 二値化処理を開始します ---
+2025-10-25 01:38:27,630 [INFO] Input Dir: hiragana_dataset/gt/train
+2025-10-25 01:38:27,630 [INFO] Output Dir: hiragana_dataset/gt_mask/train
+2025-10-25 01:38:27,630 [INFO] Target Extension: .jpg
+2025-10-25 01:38:27,940 [INFO] 108536 件の画像を処理します。
+2025-10-25 01:38:38,614 [INFO] 
+--- 処理完了 ---
+2025-10-25 01:38:38,614 [INFO] 成功: 108536 件
+2025-10-25 01:38:38,614 [INFO] 二値化マスクを 'hiragana_dataset/gt_mask/train' に保存しました。

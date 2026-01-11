@@ -4,10 +4,10 @@ Train Restormer using mask guidance: input is (RGB + mask) -> GT RGB.
 
 Usage example:
   python train_restormer_withmask.py \
-    --data-dir dataset_final_hiragana \
-    --train-lq lq_random/train --train-gt gt/train --train-mask mask_gt/train \
-    --val-lq lq_random/val --val-gt gt/val --val-mask mask_gt/val \
-    --epochs 50 --batch-size 8 --image-size 128 --save-path restormer_withmask_best.pth
+    --data-dir hiragana_dataset \
+    --train-lq lq/train --train-gt gt/train --train-mask mask_gt/train \
+    --val-lq lq/val --val-gt gt/val --val-mask mask_gt/val \
+    --epochs 50 --batch-size 16 --image-size 128 --save-path restormer_withgtmask_best.pth
 
 This is similar to train_restormer_nomask.py but concatenates the binary mask as an extra input channel.
 """
@@ -15,34 +15,59 @@ import os
 import argparse
 import logging
 from PIL import Image
-import numpy as np
-import torch
-import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
+
+import os
+import re
 import csv
 import time
 import wandb
 
-from basicsr.models.archs.restormer_arch import Restormer
-from basicsr.metrics.psnr_ssim import calculate_psnr, calculate_ssim
+# ここから追加（torch / numpy / nn のインポート）
+import torch
+import torch.nn as nn
+import numpy as np
+from restormer.basicsr.models.archs.restormer_arch import Restormer
+from restormer.basicsr.metrics.psnr_ssim import calculate_psnr, calculate_ssim
 
 
 def build_file_map(d, allowed_exts={'.jpg', '.jpeg', '.png'}, pref_order=['.jpg', '.jpeg', '.png']):
+    """
+    ディレクトリ d のファイルを正規化キー -> ファイル名 マップにする。
+    正規化では末尾の「_Stain」や「-Stain」のようなアルファベットのみのサフィックス
+    （例: Stain, aug, flip 等）を取り除く。ただし数値や座標トークン（例: 00008, X0664）
+    は保持する。
+    """
     m = {}
     if not os.path.isdir(d):
         return m
+
+    def _normalize_stem(stem):
+        # 末尾の "_Word" / "-Word" を除去（Word が英字のみのとき）
+        # 例:
+        #  - "img_0001_Stain" -> "img_0001"
+        #  - "U+304A_100249376_00008_2_X0664_Y1803_Stain" -> "U+304A_100249376_00008_2_X0664_Y1803"
+        return re.sub(r'([_\-][A-Za-z]+)$', '', stem)
+
     for fname in os.listdir(d):
         stem, ext = os.path.splitext(fname)
         ext = ext.lower()
         if ext not in allowed_exts:
             continue
-        if stem not in m:
-            m[stem] = fname
+        key = _normalize_stem(stem)
+        if key not in m:
+            m[key] = fname
         else:
-            cur_ext = os.path.splitext(m[stem])[1].lower()
-            if pref_order.index(ext) < pref_order.index(cur_ext):
-                m[stem] = fname
+            # 同キーで複数拡張子がある場合は pref_order に従って優先
+            cur_ext = os.path.splitext(m[key])[1].lower()
+            try:
+                if pref_order.index(ext) < pref_order.index(cur_ext):
+                    m[key] = fname
+            except ValueError:
+                # pref_order にない拡張子が混ざった場合は無視
+                pass
+
     return m
 
 
@@ -375,8 +400,8 @@ def parse_args():
     parser.add_argument('--batch-size', type=int, default=2)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--image-size', type=int, default=128)
-    parser.add_argument('--save-path', type=str, default='restormer_withmask_best.pth')
-    parser.add_argument('--log-path', type=str, default='restormer_withmask.log')
+    parser.add_argument('--save-path', type=str, default='experiments/restormer/restormer_withgtmask_best.pth')
+    parser.add_argument('--log-path', type=str, default='experiments/restormer/restormer_withgtmask.log')
     parser.add_argument('--num-workers', type=int, default=4)
     parser.add_argument('--cpu', action='store_true')
     parser.add_argument('--save-every', type=int, default=5)
