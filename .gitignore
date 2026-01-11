@@ -10,3 +10,5 @@ wandb/
 Kuzushiji_Restoration/
 stage2_restoration/lama/
 outputs/
+*.zip
+*.png
