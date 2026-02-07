@@ -1,0 +1,134 @@
+# ------------------------------------------------------------------------
+# NAFNet Ideal (GT Mask): Architecture comparison with Restormer
+# ------------------------------------------------------------------------
+name: NAFNet_Ideal_GTMask_Restormer_Aligned
+model_type: ImageRestorationModel
+scale: 1
+num_gpu: 1
+manual_seed: 10
+
+# dataset settings
+datasets:
+  train:
+    name: Kuzushiji_Train
+    type: PairedImageMaskDataset
+    # Restormerの設定に合わせパスを指定
+    dataroot_gt: ../hiragana_fulldataset_5stain/gt/train
+    dataroot_lq: ../hiragana_fulldataset_5stain/lq/train
+    dataroot_mask: ../hiragana_fulldataset_5stain/gt_mask/train 
+    concat_mask: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    gt_size: 128 # Restormerのimage_size: 128に一致
+    use_flip: false
+    use_rot: false
+    num_worker_per_gpu: 8 
+    batch_size_per_gpu: 64 # 高速化のため。Restormer(8)より大きいが問題なし
+    dataset_enlarge_ratio: 1
+    prefetch_mode: cuda
+    pin_memory: true
+    persistent_workers: true
+
+    mask_dropout_prob: 0.0 # Ideal評価のため常にマスクを表示
+
+  val:
+    name: Kuzushiji_Val
+    type: PairedImageMaskDataset
+    dataroot_gt: ../hiragana_fulldataset_5stain/gt/val
+    dataroot_lq: ../hiragana_fulldataset_5stain/lq/val
+    dataroot_mask: ../hiragana_fulldataset_5stain/gt_mask/val
+    concat_mask: true
+
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: NAFNet
+  width: 32
+  enc_blk_nums: [2, 2, 4, 8]
+  middle_blk_num: 12
+  dec_blk_nums: [2, 2, 2, 2]
+  img_channel: 4 
+  out_channel: 3
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  experiments_root: ../experiments/NAFNet_Ideal_GTMask_Aligned
+  models: ../experiments/NAFNet_Ideal_GTMask_Aligned/models
+
+# training settings
+train:
+  use_amp: true # A6000の性能を活かす
+  optim_g:
+    type: AdamW
+    lr: !!float 1e-3 # NAFNetの最適値。Restormer(1e-4)より高いが、収束特性に合わせる
+    weight_decay: 0.
+    betas: [0.9, 0.9]
+
+  # 400k iter (Restormerの50 epoch分よりも実質的に長く、かつ標準的な学習量)
+  total_iter: 400000 
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [400000]
+    restart_weights: [1]
+    eta_min: !!float 1e-7
+
+  # 損失関数：RestormerはL1だが、NAFNetの「最強」を見せるためCharb+Percept(0.1)を推奨
+  pixel_opt:
+    type: CharbonnierLoss
+    loss_weight: 1.0
+    reduction: mean
+    eps: !!float 1e-3
+
+  perceptual_opt:
+    type: PerceptualLoss
+    vgg_type: vgg19
+    layer_weights:
+      'conv5_4': 1
+    use_input_norm: true
+    perceptual_weight: !!float 0.1
+    style_weight: 0
+    criterion: l1
+
+  # Early stopping settings
+  early_stop:
+    metric: psnr
+    mode: max
+    patience: 10  # 20回の検証で改善がなければ停止 (20 * 5000 = 100k iter)
+
+# validation settings
+val:
+  val_freq: !!float 5e3
+  save_img: true
+  use_image: true
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    masked_psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+      use_mask: true
+    masked_ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+      use_mask: true
+
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: Kuzushiji_Restoration # Restormerと同じプロジェクトで比較
+    entity: ~
+    resume_id: ~

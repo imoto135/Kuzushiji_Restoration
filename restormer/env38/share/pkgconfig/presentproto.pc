@@ -1,7 +1,0 @@
-prefix=/home/ti/Documents/imoto/restormer_unet_color/env38
-includedir=${prefix}/include
- 
-Name: PresentProto
-Description: Present extension headers
-Version: 1.4
-Cflags: -I${includedir}

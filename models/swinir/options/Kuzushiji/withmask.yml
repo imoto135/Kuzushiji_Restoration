@@ -1,0 +1,120 @@
+# ------------------------------------------------------------------------
+# SwinIR-Tiny for Kuzushiji Restoration (GT Mask)
+# ------------------------------------------------------------------------
+name: SwinIR_Tiny_GTMask
+model_type: ImageRestorationModel
+scale: 1
+num_gpu: 1
+manual_seed: 10
+
+# dataset settings
+datasets:
+  train:
+    name: Kuzushiji_Train
+    type: PairedImageMaskDataset
+    dataroot_gt: ../hiragana_fulldataset_5stain/gt/train
+    dataroot_lq: ../hiragana_fulldataset_5stain/lq/train
+    dataroot_mask: ../hiragana_fulldataset_5stain/gt_mask/train # 最初はGTマスクで実力を測る
+    concat_mask: true
+
+    gt_size: 128
+    use_flip: false
+    use_rot: false
+    num_worker_per_gpu: 8 
+    batch_size_per_gpu: 32 # ViT系はメモリを食うため適宜調整
+    dataset_enlarge_ratio: 1
+    prefetch_mode: cuda
+
+  val:
+    name: Kuzushiji_Val
+    type: PairedImageMaskDataset
+    dataroot_gt: ../hiragana_fulldataset_5stain/gt/val
+    dataroot_lq: ../hiragana_fulldataset_5stain/lq/val
+    dataroot_mask: ../hiragana_fulldataset_5stain/gt_mask/val
+    concat_mask: true
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: SwinIR
+  upscale: 1
+  in_chans: 4 # RGB + Mask
+  img_size: 128
+  window_size: 8
+  img_range: 1.0
+  depths: [6, 6, 6, 6, 6, 6]
+  embed_dim: 60
+  num_heads: [6, 6, 6, 6, 6, 6]
+  mlp_ratio: 2
+  upsampler: ~
+  resi_connection: '1conv'
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  experiments_root: ../experiments/SwinIR_Tiny_GTMask
+  models: ../experiments/SwinIR_Tiny_GTMask/models
+
+# training settings
+train:
+  use_amp: true
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4 # SwinIRの標準学習率
+    weight_decay: 0.
+    betas: [0.9, 0.99]
+
+  total_iter: 400000 
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [400000]
+    restart_weights: [1]
+    eta_min: !!float 1e-7
+
+  # 比較を公平にするため、NAFNetの「最強設定」と同じ損失関数を使用
+  pixel_opt:
+    type: CharbonnierLoss
+    loss_weight: 1.0
+    reduction: mean
+    eps: !!float 1e-3
+
+  perceptual_opt:
+    type: PerceptualLoss
+    vgg_type: vgg19
+    layer_weights:
+      'conv5_4': 1
+    use_input_norm: true
+    perceptual_weight: !!float 0.1
+    style_weight: 0
+    criterion: l1
+
+# validation settings
+val:
+  val_freq: !!float 5e3
+  save_img: true
+  metrics:
+    psnr:
+      type: calculate_psnr
+    lpips:
+      type: calculate_lpips
+    masked_psnr:
+      type: calculate_psnr
+      use_mask: true
+
+# logging settings
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  # モデルのパラメータ数とFLOPsを記録
+  log_params: true
+  log_flops: true
+  wandb:
+    project: Kuzushiji_Restoration
+    # すべての損失関数とメトリクスを記録
+    entity: ~
+    resume_id: ~
+  # TensorBoardに詳細なログを保存
+  save_all_losses: true

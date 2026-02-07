@@ -1,7 +1,0 @@
-prefix=/home/ti/Documents/imoto/restormer_unet_color/env
-includedir=${prefix}/include
- 
-Name: XF86DGAProto
-Description: XF86DGA extension headers
-Version: 2.1
-Cflags: -I${includedir}

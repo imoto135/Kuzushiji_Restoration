@@ -1,0 +1,165 @@
+# ------------------------------------------------------------------------
+# MPRNet for Kuzushiji Restoration (With Pred Mask Input)
+# Experiment ①: Charbonnier Loss + Perceptual Loss (VGG19)
+# NAFNet/SwinIR mask_charb_percep と対等に比較するための設定
+# nafnet2環境で実行 (GPU 1を使用)
+# ------------------------------------------------------------------------
+# general settings
+name: MPRNet_PredMask_CharbPercep
+model_type: MPRNetModel
+scale: 1
+num_gpu: 1
+manual_seed: 10
+
+# dataset settings
+datasets:
+  train:
+    name: Kuzushiji_Train
+    type: PairedImageMaskDataset
+    dataroot_gt: ../hiragana_fulldataset_5stain/gt/train
+    dataroot_lq: ../hiragana_fulldataset_5stain/lq/train
+    dataroot_mask: ../hiragana_fulldataset_5stain/pred_mask/train
+    
+    # Enable Mask Concatenation for Input
+    concat_mask: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    gt_size: 128
+    use_flip: false
+    use_rot: false
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 8 
+    batch_size_per_gpu: 64  # GPUメモリを活用して高速化
+    dataset_enlarge_ratio: 1
+    prefetch_mode: cuda
+    pin_memory: true
+    persistent_workers: true
+
+  val:
+    name: Kuzushiji_Val
+    type: PairedImageMaskDataset
+    dataroot_gt: ../hiragana_fulldataset_5stain/gt/val
+    dataroot_lq: ../hiragana_fulldataset_5stain/lq/val
+    dataroot_mask: ../hiragana_fulldataset_5stain/pred_mask/val
+    
+    # Enable Mask Concatenation for Input
+    concat_mask: true
+
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: MPRNet
+  in_c: 4                  # RGB + Mask
+  out_c: 3
+  n_feat: 40               # Feature channels (reduced from 80 for memory)
+  scale_unetfeats: 20      # Scale for U-Net features (reduced from 48)
+  scale_orsnetfeats: 16    # Scale for ORSNet features (reduced from 32)
+  num_cab: 4               # Number of CAB blocks (reduced from 8)
+  kernel_size: 3
+  reduction: 4
+  bias: false
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+  experiments_root: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep
+  models: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep/models
+  training_states: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep/training_states
+  log: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep
+  visualization: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep/visualization
+
+# training settings
+train:
+  use_amp: true
+  
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4      # MPRNetの標準学習率
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  total_iter: 50000       # batch_size=64でNAFNetと同サンプル数 (~10時間)
+  
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [50000]      # total_iterに合わせる
+    restart_weights: [1]
+    eta_min: !!float 1e-7
+
+  warmup_iter: -1
+  
+  use_grad_clip: true
+
+  early_stop:
+    metric: psnr
+    mode: max
+    patience: 15          # 15回改善なしで停止
+
+  # ==========================================
+  # Experiment ①: Charbonnier + Perceptual Loss
+  # NAFNetと同じ損失関数設定
+  # ==========================================
+  pixel_opt:
+    type: CharbonnierLoss
+    loss_weight: 1.0
+    reduction: mean
+    eps: !!float 1e-12
+
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      'conv5_4': 1.0
+    vgg_type: vgg19
+    use_input_norm: true
+    range_norm: false
+    perceptual_weight: 0.1
+    style_weight: 0
+
+# validation settings
+val:
+  val_freq: !!float 2.5e3  # ~30分ごとに検証
+  save_img: true
+  use_image: true
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+    masked_psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+      use_mask: true
+    masked_ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+      use_mask: true
+
+# logging settings
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: Kuzushiji_Restoration
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29501

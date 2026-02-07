@@ -1,6 +1,0 @@
-# ninja log v5
-1	1795	1755753948473572989	/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/build/temp.linux-x86_64-cpython-37/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/src/cpu/dcn_v2_im2col_cpu.o	14fd0c6691826172
-1	2308	1755753948985573010	/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/build/temp.linux-x86_64-cpython-37/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/src/cpu/dcn_v2_psroi_pooling_cpu.o	1d759a373529ef1a
-1	5244	1755753951921573134	/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/build/temp.linux-x86_64-cpython-37/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/src/cuda/dcn_v2_im2col_cuda.o	803b62a6fa3e0cf
-1	5603	1755753952277573148	/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/build/temp.linux-x86_64-cpython-37/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/src/cuda/dcn_v2_psroi_pooling_cuda.o	d06bfaba36ba3afb
-2	10275	1755753956941573344	/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/build/temp.linux-x86_64-cpython-37/home/ihpc4090/imoto/Restormer/basicsr/models/ops/dcn/src/vision.o	1c1a5ec808617c37

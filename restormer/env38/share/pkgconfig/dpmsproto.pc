@@ -1,7 +1,0 @@
-prefix=/home/ti/Documents/imoto/restormer_unet_color/env38
-includedir=${prefix}/include
-
-Name: DPMSProto
-Description: DPMS extension headers
-Version: 1.2
-Cflags: -I${includedir}

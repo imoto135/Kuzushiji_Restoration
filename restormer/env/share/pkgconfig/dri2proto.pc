@@ -1,7 +1,0 @@
-prefix=/home/ti/Documents/imoto/restormer_unet_color/env
-includedir=${prefix}/include
- 
-Name: DRI2Proto
-Description: DRI2 extension headers
-Version: 2.8
-Cflags: -I${includedir}

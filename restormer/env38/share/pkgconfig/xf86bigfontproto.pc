@@ -1,7 +1,0 @@
-prefix=/home/ti/Documents/imoto/restormer_unet_color/env38
-includedir=${prefix}/include
- 
-Name: XF86BigFontProto
-Description: XF86BigFont extension headers
-Version: 1.2.0
-Cflags: -I${includedir}
