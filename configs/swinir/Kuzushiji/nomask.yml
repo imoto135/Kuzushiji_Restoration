@@ -1,0 +1,129 @@
+# ------------------------------------------------------------------------
+# SwinIR-tiny for Kuzushiji Restoration (No Mask)
+# ------------------------------------------------------------------------
+# general settings
+name: SwinIR_Tiny_Kuzushiji_NoMask
+model_type: ImageRestorationModel
+scale: 1
+num_gpu: 1
+manual_seed: 10
+
+# dataset settings
+datasets:
+  train:
+    name: Kuzushiji_Train
+    type: PairedImageMaskDataset
+    dataroot_gt: ../hiragana_fulldataset_5stain/gt/train
+    dataroot_lq: ../hiragana_fulldataset_5stain/lq/train
+    
+    # No mask used for input in nomask mode
+    # dataroot_mask: ...
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    gt_size: 128
+    use_flip: false
+    use_rot: false
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 32
+    dataset_enlarge_ratio: 1
+    prefetch_mode: cuda
+    pin_memory: true
+    persistent_workers: true
+
+  val:
+    name: Kuzushiji_Val
+    type: PairedImageMaskDataset
+    dataroot_gt: ../hiragana_fulldataset_5stain/gt/val
+    dataroot_lq: ../hiragana_fulldataset_5stain/lq/val
+    concat_mask: false
+
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: SwinIR
+  img_size: 128
+  patch_size: 1
+  in_chans: 3
+  embed_dim: 60
+  depths: [6, 6, 6, 6]
+  num_heads: [6, 6, 6, 6]
+  window_size: 8
+  mlp_ratio: 2.
+  upscale: 1
+  img_range: 1.
+  upsampler: ''
+  resi_connection: '1conv'
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+  experiments_root: ../experiments/SwinIR_Tiny_Kuzushiji_NoMask
+  models: ../experiments/SwinIR_Tiny_Kuzushiji_NoMask/models
+  training_states: ../experiments/SwinIR_Tiny_Kuzushiji_NoMask/training_states
+  log: ../experiments/SwinIR_Tiny_Kuzushiji_NoMask
+  visualization: ../experiments/SwinIR_Tiny_Kuzushiji_NoMask/visualization
+
+# training settings
+train:
+  use_amp: true
+  
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4
+    weight_decay: 0.
+    betas: [0.9, 0.9]
+
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [92000, 208000]
+    restart_weights: [1, 1]
+    eta_min: !!float 1e-7
+
+  total_iter: 300000
+  warmup_iter: -1  # no warm up
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+# validation settings
+val:
+  val_freq: !!float 5e3
+  save_img: false
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

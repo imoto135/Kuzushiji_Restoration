@@ -1,15 +1,90 @@
-datasets/
-experiments/
-*.pth
-*.log
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual Environment
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+env38/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
-nohup.out
+Thumbs.db
+
+# Training Artifacts
+*.pth
+*.pt
+*.ckpt
+models/*/experiments/
+models/*/tb_logger/
+models/*/wandb/
+experiments/
+tb_logger/
 wandb/
-*.jpg
-Kuzushiji_Restoration/
-stage2_restoration/lama/
-outputs/
+
+# Logs
+*.log
+nohup.out
+*.out
+
+# Data (大容量のためGit管理外)
+data/hiragana_dataset/
+data/hiragana_fulldataset_5stain/
 *.zip
-*.png
-*.csv
+*.tar.gz
+*.tar
+
+# Outputs (サンプル以外)
+outputs/*
+!outputs/sample_results/
+!outputs/sample_results/*.png
+!outputs/sample_results/*.jpg
+!outputs/.gitkeep
+
+# Archive
+archive/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Model weights (チェックポイントは除外、最終版のみ別途管理)
+*.pth
+!models/*/pretrained/*.pth
+
+# CSV results (大量の場合)
+# *.csv
+# サンプルCSVは含めたい場合はコメントアウト
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.synctex.gz
+
+# Conda
+Miniconda*.sh

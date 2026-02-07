@@ -1,0 +1,114 @@
+# --- 一般設定 ---
+name: UNet_Restormer_Hiragana_Run01
+model_type: ImageCleanModel
+scale: 1
+num_gpu: 1
+manual_seed: 100
+
+# --- データセットとデータローダーの設定 ---
+datasets:
+  train:
+    name: dataset_final_hiragana_Train
+    type: PairedImageWithMaskDataset
+    # トレーニング用ファイルリスト（リポジトリルートからの相対パスなどで指定）
+    filelist_path: 'configs/train_filelist_hiragana.txt'
+
+    # dataset_final_hiragana の構成に合わせてパスを指定
+    dataroot_gt: datasets/hiragana_full/gt/train
+    dataroot_lq: datasets/hiragana_full/lq/train
+    dataroot_mask: datasets/hiragana_full//train
+  
+    geometric_augs: true
+    use_shuffle: true
+    num_worker_per_gpu: 8
+    batch_size_per_gpu: 16        # 変更: GPUごとのバッチを小さく
+    gt_size: 128                  # 変更: パッチサイズ（Patch_Size）を小さく
+    
+    iters: [150000]
+    mini_batch_sizes: [16]       # 変更: ミニバッチサイズ（必要なら合計バッチを調整）
+    gt_sizes: [128]               # 変更: gt_sizes に合わせる
+    use_flip: true
+    use_rot: true
+    io_backend: {type: disk}
+
+  val:
+    name: dataset_final_hiragana_Val
+    type: PairedImageWithMaskDataset
+    filelist_path: 'configs/val_filelist_hiragana.txt'
+
+    dataroot_gt: dataset_final_hiragana/gt/val
+    dataroot_lq: dataset_final_hiragana/lq_random/val
+    dataroot_mask: dataset_final_hiragana/mask_random_prediction/val
+
+    io_backend: {type: disk}
+
+# --- ネットワーク構造 ---
+network_g:
+  type: Restormer
+  inp_channels: 4
+  out_channels: 3
+  dim: 48
+  num_blocks: [4, 6, 6, 8] 
+  num_refinement_blocks: 4
+  heads: [1, 2, 4, 8]
+  ffn_expansion_factor: 2.66
+  bias: false
+  LayerNorm_type: 'WithBias'
+  dual_pixel_task: false
+
+# --- パス設定 ---
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  # resume_state: 'experiments/UNet_Restormer_Hiragana_Run01/training_states/net_g_20000.pth'  # <- 旧: 存在しないパス
+  resume_state: 'experiments/UNet_Restormer_Hiragana_Run01/training_states/15000.state'  # resume 用の既存の良好なチェックポイント
+
+# --- 学習設定 ---
+train:
+  total_iter: 450000
+  optim_g:
+    type: AdamW
+    lr: !!float 2e-4
+    weight_decay: !!float 1e-3
+    betas: [0.9, 0.999]
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [150000]
+    restart_weights: [1]
+    eta_min: !!float 1e-7
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+
+# --- 検証設定 ---
+val:
+  val_freq: !!float 5000
+  save_img: true
+  binarize_for_metrics: true
+  patience: 5
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+    iou:
+      type: calculate_iou
+      threshold: 10 # 二値化の閾値
+
+# --- ログ設定 ---
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 20000   # ← 頻度を下げる（例）0   # ← 頻度を下げる（例）
+  use_tb_logger: true
+  wandb:
+    project: 'KMNIST_UNet_Restormer04'
+    log_checkpoint_freq: 5000 5000
+
+# --- 分散学習設定 ---# --- 分散学習設定 ---
+dist_params:
+  backend: ncclccl
+  port: 29500
+
