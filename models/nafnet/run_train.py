@@ -1,4 +1,5 @@
 # ------------------------------------------------------------------------
+print("DEBUG: Very beginning of train.py", flush=True)
 import argparse
 import datetime
 import logging
@@ -159,8 +160,10 @@ def create_train_val_dataloader(opt, logger):
 
 
 def main():
+    print("DEBUG: Starting main", flush=True)
     # parse options, set distributed setting, set ramdom seed
     opt = parse_options(is_train=True)
+    print("DEBUG: Options parsed", flush=True)
 
     torch.backends.cudnn.benchmark = True
     # torch.backends.cudnn.deterministic = True
@@ -198,18 +201,13 @@ def main():
 
     # initialize loggers
     logger, tb_logger, wandb_run = init_loggers(opt)
-    logger.info("DEBUG: Loggers initialized.")
 
     # create train and validation dataloaders
-    logger.info("DEBUG: Creating dataloaders...")
     result = create_train_val_dataloader(opt, logger)
-    logger.info("DEBUG: Dataloaders created.")
     train_loader, train_sampler, val_loader, total_epochs, total_iters, num_iter_per_epoch = result
 
     # create model
-    logger.info("DEBUG: Creating model...")
     model = create_model(opt)
-    logger.info("DEBUG: Model created.")
 
     # ----- Calculate and log FLOPs and Parameters -----
     # NOTE: Must be done BEFORE torch.compile for accurate measurement

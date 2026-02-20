@@ -1,0 +1,153 @@
+# ------------------------------------------------------------------------
+# Restormer for Kuzushiji Restoration (No Mask)
+# Experiment: Charbonnier Loss + Perceptual Loss (VGG19)
+# マスクなしでの修復学習
+# nafnet_env_gpu環境で実行
+# ------------------------------------------------------------------------
+# general settings
+name: Restormer_Kuzushiji_NoMask_CharbPercep
+model_type: ImageRestorationModel
+scale: 1
+num_gpu: 1
+manual_seed: 10
+
+# dataset settings
+datasets:
+  train:
+    name: Kuzushiji_Train
+    type: PairedImageMaskDataset
+    dataroot_gt: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/train
+    dataroot_lq: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/lq/train
+    
+    # No mask used for input in nomask mode
+    # dataroot_mask is not specified
+    concat_mask: false
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+    gt_size: 128
+    use_flip: false
+    use_rot: false
+
+    # data loader
+    use_shuffle: true
+    num_worker_per_gpu: 8 
+    batch_size_per_gpu: 16  # Restormerはメモリ使用量が大きい
+    dataset_enlarge_ratio: 1
+    prefetch_mode: cuda
+    pin_memory: true
+    persistent_workers: true
+
+  val:
+    name: Kuzushiji_Val
+    type: PairedImageMaskDataset
+    dataroot_gt: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/val
+    dataroot_lq: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/lq/val
+    
+    # No mask concatenation for validation
+    concat_mask: false
+
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: Restormer
+  inp_channels: 3          # RGB only (no mask)
+  out_channels: 3
+  dim: 48                  # Base feature dimension
+  num_blocks: [4,6,6,8]    # Number of transformer blocks per stage
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]         # Number of attention heads per stage
+  ffn_expansion_factor: 2.66
+  bias: false
+  LayerNorm_type: WithBias
+  dual_pixel_task: false
+
+# path
+path:
+  pretrain_network_g: ~
+  strict_load_g: true
+  resume_state: ~
+  experiments_root: ../experiments/Restormer_Kuzushiji_NoMask/charb_percep
+  models: ../experiments/Restormer_Kuzushiji_NoMask/charb_percep/models
+  training_states: ../experiments/Restormer_Kuzushiji_NoMask/charb_percep/training_states
+  log: ../experiments/Restormer_Kuzushiji_NoMask/charb_percep
+  visualization: ../experiments/Restormer_Kuzushiji_NoMask/charb_percep/visualization
+
+# training settings
+train:
+  use_amp: true
+  use_torch_compile: false  # メモリ節約のため無効化
+  
+  optim_g:
+    type: AdamW
+    lr: !!float 3e-4      # Restormerの標準学習率
+    weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]
+
+  total_iter: 1356800     # 200 epochs (6784 iters/epoch * 200) - NAFNetと同じepoch数
+  
+  scheduler:
+    type: CosineAnnealingRestartLR
+    periods: [1356800]    # total_iterに合わせる
+    restart_weights: [1]
+    eta_min: !!float 1e-7
+
+  warmup_iter: -1
+
+  early_stop:
+    metric: psnr
+    mode: max
+    patience: 15          # 15回改善なしで停止
+
+  # ==========================================
+  # Experiment: Charbonnier + Perceptual Loss
+  # ==========================================
+  pixel_opt:
+    type: CharbonnierLoss
+    loss_weight: 1.0
+    reduction: mean
+    eps: !!float 1e-12
+
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      'conv5_4': 1.0
+    vgg_type: vgg19
+    use_input_norm: true
+    range_norm: false
+    perceptual_weight: 0.1
+    style_weight: 0
+
+# validation settings
+val:
+  val_freq: !!float 5e3    # ~1時間ごとに検証
+  save_img: true
+  use_image: true
+
+  metrics:
+    psnr:
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+    ssim:
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 200
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: Kuzushiji_Restoration
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29502

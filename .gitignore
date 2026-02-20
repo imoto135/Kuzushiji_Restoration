@@ -88,3 +88,7 @@ temp/
 
 # Conda
 Miniconda*.sh
+
+# Process ID files
+*.pid
+

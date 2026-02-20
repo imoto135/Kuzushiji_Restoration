@@ -138,16 +138,17 @@ def normalize_stem(fname):
     import re
     stem = os.path.splitext(os.path.basename(fname))[0]
 
-    # 1. 指定された損傷サフィックスを削除
+    # 1. 指定された損傷サフィックスを削除（複数回適用して全て除去）
     # (_Transparent_Stain を _Stain より先に判定させるため、長い順に記述しています)
-    stem = re.sub(r"(_Transparent_Stain|_Ghosting|_Scratch|_Missing|_Stain)$", "", stem, flags=re.IGNORECASE)
+    while True:
+        old_stem = stem
+        stem = re.sub(r"(_Transparent_Stain|_Ghosting|_Scratch|_Missing|_Stain)$", "", stem, flags=re.IGNORECASE)
+        stem = re.sub(r"(_restored|_pred|_out)$", "", stem, flags=re.IGNORECASE)
+        if stem == old_stem:
+            break
 
-    # 2. 推論時に付与されがちなその他のサフィックスも除去
-    stem = re.sub(r"(_restored|_pred|_out)$", "", stem, flags=re.IGNORECASE)
-
-    # 3. 末尾に残ったアルファベット1文字などのゴミ（_a, -bなど）があれば除去
-    # (座標情報 _Y1234 などを消さないよう、数字を含まないものだけに限定)
-    stem = re.sub(r"[_-][A-Za-z]+$", "", stem)
+    # 2. 末尾のアンダースコアやハイフンを削除
+    stem = stem.rstrip('_-')
 
     return stem
 
@@ -159,15 +160,47 @@ def build_index(dir_path):
     """
     index = {}
     for f in sorted(os.listdir(dir_path)):
-        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+        if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
             full_path = os.path.join(dir_path, f)
             key = normalize_stem(f)
-            if key not in index:
+            if key in index:
+                # 重複する場合は警告（デバッグ用）
+                # print(f"Warning: Duplicate key '{key}' for files: {os.path.basename(index[key])} and {f}")
+                pass
+            else:
                 index[key] = full_path
     return index
 
 
-def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use_gpu=True):
+def count_parameters(model):
+    """モデルのパラメータ数をカウント"""
+    return sum(p.numel() for p in model.parameters())
+
+
+def calculate_flops(model, input_size=(1, 4, 128, 128)):
+    """
+    FLOPsを計算（thopまたはfvcore使用）
+    """
+    try:
+        from thop import profile
+        device = next(model.parameters()).device
+        dummy_input = torch.randn(input_size).to(device)
+        flops, params = profile(model, inputs=(dummy_input,), verbose=False)
+        return flops, params
+    except ImportError:
+        try:
+            from fvcore.nn import FlopCountAnalysis
+            device = next(model.parameters()).device
+            dummy_input = torch.randn(input_size).to(device)
+            flops = FlopCountAnalysis(model, dummy_input).total()
+            params = count_parameters(model)
+            return flops, params
+        except ImportError:
+            print("Warning: thop or fvcore not installed. FLOPs calculation skipped.")
+            return None, None
+
+
+def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use_gpu=True, model=None):
     """
     ディレクトリ内の画像を比較し、LPIPS, Masked PSNR, Masked SSIMを計算してCSVに出力
     ファイル名の正規化を行い、損傷サフィックスの有無に関わらずマッチング
@@ -195,6 +228,28 @@ def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use
     # 共通のキー（正規化されたstem）を取得
     common_keys = sorted(set(gt_index.keys()) & set(pred_index.keys()) & set(mask_index.keys()))
     
+    # デバッグ: 不一致ファイルを確認
+    gt_only = set(gt_index.keys()) - set(pred_index.keys())
+    pred_only = set(pred_index.keys()) - set(gt_index.keys())
+    mask_only = set(mask_index.keys()) - set(gt_index.keys())
+    
+    if gt_only or pred_only or mask_only:
+        print(f"\n--- ファイル不一致の詳細 ---")
+        if gt_only:
+            print(f"GTのみに存在: {len(gt_only)}枚")
+            # 最初の5個を表示
+            for i, key in enumerate(list(gt_only)[:5]):
+                print(f"  例: {key} -> {os.path.basename(gt_index[key])}")
+        if pred_only:
+            print(f"Predのみに存在: {len(pred_only)}枚")
+            for i, key in enumerate(list(pred_only)[:5]):
+                print(f"  例: {key} -> {os.path.basename(pred_index[key])}")
+        if mask_only:
+            print(f"Maskのみに存在: {len(mask_only)}枚")
+            for i, key in enumerate(list(mask_only)[:5]):
+                print(f"  例: {key} -> {os.path.basename(mask_index[key])}")
+        print()
+
     if not common_keys:
         print("エラー: マッチするファイルが見つかりませんでした。")
         print(f"  GT: {len(gt_index)} 枚")
@@ -286,7 +341,16 @@ def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use
         print("計算可能な画像がありませんでした。")
         avg_lpips = avg_psnr = avg_masked_psnr = avg_ssim = avg_masked_ssim = 0
 
-    # 5. CSV保存
+    # 5. モデルの計算量を取得
+    flops = params = None
+    if model is not None:
+        print("\nモデルの計算量を計算中...")
+        flops, params = calculate_flops(model)
+        if flops is not None and params is not None:
+            print(f"FLOPs: {flops / 1e9:.2f} G")
+            print(f"Parameters: {params / 1e6:.2f} M")
+
+    # 6. CSV保存
     try:
         with open(output_csv, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -300,41 +364,59 @@ def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use
             writer.writerow([])
             writer.writerow(['Average', avg_lpips, avg_psnr, avg_masked_psnr, avg_ssim, avg_masked_ssim])
             
+            # 計算量情報
+            if flops is not None and params is not None:
+                writer.writerow([])
+                writer.writerow(['Model Stats', 'FLOPs (G)', 'Parameters (M)'])
+                writer.writerow(['', flops / 1e9, params / 1e6])
+            
         print(f"結果を {output_csv} に保存しました。")
         
     except Exception as e:
         print(f"CSV書き込みエラー: {e}")
 
-    # 6. wandbログ保存
+    # 7. wandbログ保存
     if args and args.use_wandb:
+        import wandb
         print("wandbに結果を送信中...")
+        
+        # デバッグ用: wandbが初期化されているか確認
+        if wandb.run is None:
+            print("Warning: wandb.run is None. wandb.init()が呼ばれていない可能性があります。")
+        else:
+            print(f"wandb run: {wandb.run.name}, project: {wandb.run.project}")
+            
         wandb_results = {
-            "Average/LPIPS": avg_lpips,
-            "Average/PSNR": avg_psnr,
-            "Average/Masked_PSNR": avg_masked_psnr,
-            "Average/SSIM": avg_ssim,
-            "Average/Masked_SSIM": avg_masked_ssim,
-            "Count": count
+            "eval/LPIPS": avg_lpips,
+            "eval/PSNR": avg_psnr,
+            "eval/Masked_PSNR": avg_masked_psnr,
+            "eval/SSIM": avg_ssim,
+            "eval/Masked_SSIM": avg_masked_ssim,
+            "eval/Count": count
         }
+        
+        # 計算量情報を追加
+        if flops is not None and params is not None:
+            wandb_results["model/FLOPs_G"] = flops / 1e9
+            wandb_results["model/Parameters_M"] = params / 1e6
         
         # テーブル作成（詳細データ）
         table = wandb.Table(columns=['Filename', 'LPIPS', 'PSNR', 'Masked_PSNR', 'SSIM', 'Masked_SSIM'])
         for res in results:
             table.add_data(*res)
         
+        wandb_results["eval/detailed_results"] = table
+        
         # ログをまとめて送信
-        log_data = wandb_results.copy()
-        log_data["Evaluation_Results"] = table
-        wandb.log(log_data)
+        wandb.log(wandb_results)
 
-        # Runsテーブル（一覧）に表示されるようにsummaryを明示的に更新
+        # サマリーを更新（Runsテーブルに表示）
         for key, value in wandb_results.items():
-            # "Average/" プレフィックスがついている場合、プレフィックスなしでも登録しておくと表で見やすい場合があります
-            # ここでは元のキー(Average/...)で登録します
-            wandb.run.summary[key] = value
+            if key != "eval/detailed_results":  # テーブルは除外
+                wandb.run.summary[key] = value
             
-        wandb.finish()
         print("wandb送信完了")
+
 
 if __name__ == "__main__":
     import argparse
@@ -342,47 +424,50 @@ if __name__ == "__main__":
     
     # パス設定
     parser.add_argument('--gt_dir', type=str, 
-                        default="/home/imoto/Kuzushiji_Restoration/hiragana_fulldataset_5stain/gt/test",
+                        default="/home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/test",
                         help='正解画像 (Ground Truth) のフォルダ')
     parser.add_argument('--pred_dir', type=str, 
-                        default="/home/imoto/Kuzushiji_Restoration/outputs/nafnet_mask_MaskMorph",
+                        default="outputs/mprnet_predmask_charbpercep",
                         help='修復画像 (Restored/Output) のフォルダ')
     parser.add_argument('--mask_dir', type=str, 
-                        default="/home/imoto/Kuzushiji_Restoration/hiragana_fulldataset_5stain/gt_mask/test",
+                        default="/home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt_mask/test",
                         help='文字領域マスク (Mask) のフォルダ')
     parser.add_argument('--output_csv', type=str, 
-                        default="/home/imoto/Kuzushiji_Restoration/outputs/nafnet_mask_charbpercep/evaluation_nafnet_mask_MaskMorph.csv",
+                        default="outputs/mprnet_predmask_charbpercep/evaluation__mask_charbpercep.csv",
                         help='出力CSVファイルパス')
     
     # wandb設定
     parser.add_argument('--use_wandb', action='store_true', help='wandbに結果を記録する')
     parser.add_argument('--wandb_project', type=str, default='Kuzushiji_Restoration', help='wandbプロジェクト名')
-    parser.add_argument('--wandb_name', type=str, default='eval_nafnet_mask_MaskMorph', help='wandb run名 (未指定なら自動生成)')
+    parser.add_argument('--wandb_name', type=str, default="eval_swinir_charbpercep", help='wandb run名 (未指定なら自動生成)')
     parser.add_argument('--wandb_job_type', type=str, default='evaluation', help='wandbジョブタイプ')
+    parser.add_argument('--wandb_tags', type=str, nargs='+', default=None, help='wandbタグ')
 
     args = parser.parse_args()
 
     if args.use_wandb:
         import wandb
-        wandb.init(project=args.wandb_project, name=args.wandb_name, job_type=args.wandb_job_type, config=vars(args))
+        wandb_config = vars(args).copy()
+        wandb.init(
+            project=args.wandb_project, 
+            name=args.wandb_name, 
+            job_type=args.wandb_job_type, 
+            tags=args.wandb_tags,
+            config=wandb_config
+        )
 
     if os.path.exists(args.gt_dir) and os.path.exists(args.pred_dir) and os.path.exists(args.mask_dir):
         # 出力ディレクトリの作成
         os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
         
-        # calculate_all_metrics に args を渡せるように少し修正が必要だが、
-        # ここでは calculate_all_metrics で wandb を直接参照せず、戻り値や引数で渡す形にするか、
-        # グローバルな args を参照する形にするか... 
-        # シンプルに calculate_all_metrics の引数を修正せず、関数内から args にアクセスするのはdirtyなので、
-        # calculate_all_metrics の引数を変更するのが筋だが、今回は関数定義も変更する。
-        # 上記の replace ブロックですでに関数末尾に wandb 処理を追加しているので、
-        # 関数定義のシグネチャ変更も必要。
-        pass # 下記の関数定義変更で対応
+        calculate_all_metrics(args.gt_dir, args.pred_dir, args.mask_dir, args.output_csv, args=args, model=None)
     else:
         print("エラー: 指定されたディレクトリが見つかりません。パスを確認してください。")
         if not os.path.exists(args.gt_dir): print(f"Missing: {args.gt_dir}")
         if not os.path.exists(args.pred_dir): print(f"Missing: {args.pred_dir}")
         if not os.path.exists(args.mask_dir): print(f"Missing: {args.mask_dir}")
         import sys; sys.exit(1)
-
-    calculate_all_metrics(args.gt_dir, args.pred_dir, args.mask_dir, args.output_csv, args=args)
+    
+    if args.use_wandb:
+        import wandb
+        wandb.finish()

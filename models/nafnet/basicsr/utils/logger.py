@@ -125,12 +125,15 @@ def init_wandb_logger(opt):
         wandb_id = wandb.util.generate_id()
         resume = 'never'
 
+    import os
+    mode = os.environ.get('WANDB_MODE', 'online')
     wandb.init(
         id=wandb_id,
         resume=resume,
         name=opt['name'],
         config=opt,
         project=project,
+        mode=mode,
         sync_tensorboard=True)
 
     logger.info(f'Use wandb logger with id={wandb_id}; project={project}.')

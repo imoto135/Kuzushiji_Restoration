@@ -16,9 +16,9 @@ datasets:
   train:
     name: Kuzushiji_Train
     type: PairedImageMaskDataset
-    dataroot_gt: ../hiragana_fulldataset_5stain/gt/train
-    dataroot_lq: ../hiragana_fulldataset_5stain/lq/train
-    dataroot_mask: ../hiragana_fulldataset_5stain/pred_mask/train
+    dataroot_gt: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/train
+    dataroot_lq: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/lq/train
+    dataroot_mask: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/pred_mask/train
     
     # Enable Mask Concatenation for Input
     concat_mask: true
@@ -34,7 +34,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 8 
-    batch_size_per_gpu: 64  # GPUメモリを活用して高速化
+    batch_size_per_gpu: 32  # torch.compileメモリ対策
     dataset_enlarge_ratio: 1
     prefetch_mode: cuda
     pin_memory: true
@@ -43,9 +43,9 @@ datasets:
   val:
     name: Kuzushiji_Val
     type: PairedImageMaskDataset
-    dataroot_gt: ../hiragana_fulldataset_5stain/gt/val
-    dataroot_lq: ../hiragana_fulldataset_5stain/lq/val
-    dataroot_mask: ../hiragana_fulldataset_5stain/pred_mask/val
+    dataroot_gt: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/val
+    dataroot_lq: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/lq/val
+    dataroot_mask: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/pred_mask/val
     
     # Enable Mask Concatenation for Input
     concat_mask: true
@@ -70,7 +70,7 @@ network_g:
 path:
   pretrain_network_g: ~
   strict_load_g: true
-  resume_state: ~
+  resume_state: ../experiments/MPRNet_PredMask_CharbPercep/training_states/2500.state
   experiments_root: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep
   models: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep/models
   training_states: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep/training_states
@@ -87,7 +87,7 @@ train:
     weight_decay: !!float 1e-4
     betas: [0.9, 0.999]
 
-  total_iter: 200000      # SwinIR/Restormerと同じイテレーション数で公平比較
+  total_iter: 200000      # NAFNet/SwinIR/Restormerと対等な比較のため200k
   
   scheduler:
     type: CosineAnnealingRestartLR
@@ -153,7 +153,7 @@ val:
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 5e3
+  save_checkpoint_freq: !!float 2.5e3  # より頻繁に保存（5000→2500）
   use_tb_logger: true
   wandb:
     project: Kuzushiji_Restoration

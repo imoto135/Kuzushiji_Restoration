@@ -26,18 +26,26 @@ class ImageRestorationModel(BaseModel):
     def __init__(self, opt):
         super(ImageRestorationModel, self).__init__(opt)
 
+        print("DEBUG: ImageRestorationModel.__init__ started", flush=True)
+
         # define network
+        print("DEBUG: Defining network...", flush=True)
         self.net_g = define_network(deepcopy(opt['network_g']))
         self.net_g = self.model_to_device(self.net_g)
+        print("DEBUG: Network defined.", flush=True)
 
         # load pretrained models
         load_path = self.opt['path'].get('pretrain_network_g', None)
         if load_path is not None:
+            print(f"DEBUG: Loading network from {load_path}...", flush=True)
             self.load_network(self.net_g, load_path,
                               self.opt['path'].get('strict_load_g', True), param_key=self.opt['path'].get('param_key', 'params'))
+            print("DEBUG: Network loaded.", flush=True)
 
         if self.is_train:
+            print("DEBUG: Initializing training settings...", flush=True)
             self.init_training_settings()
+            print("DEBUG: Training settings initialized.", flush=True)
 
         self.scale = int(opt['scale'])
 

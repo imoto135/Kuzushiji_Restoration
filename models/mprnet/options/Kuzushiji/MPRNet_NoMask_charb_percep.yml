@@ -1,11 +1,11 @@
 # ------------------------------------------------------------------------
-# MPRNet for Kuzushiji Restoration (With Pred Mask Input)
-# Experiment ①: Charbonnier Loss + Perceptual Loss (VGG19)
-# NAFNet/SwinIR mask_charb_percep と対等に比較するための設定
-# nafnet2環境で実行 (GPU 1を使用)
+# MPRNet for Kuzushiji Restoration (No Mask)
+# Experiment: Charbonnier Loss + Perceptual Loss (VGG19)
+# マスクなしでの修復学習
+# nafnet_env_gpu環境で実行
 # ------------------------------------------------------------------------
 # general settings
-name: MPRNet_PredMask_CharbPercep
+name: MPRNet_Kuzushiji_NoMask_CharbPercep
 model_type: MPRNetModel
 scale: 1
 num_gpu: 1
@@ -16,12 +16,12 @@ datasets:
   train:
     name: Kuzushiji_Train
     type: PairedImageMaskDataset
-    dataroot_gt: ../hiragana_fulldataset_5stain/gt/train
-    dataroot_lq: ../hiragana_fulldataset_5stain/lq/train
-    dataroot_mask: ../hiragana_fulldataset_5stain/pred_mask/train
+    dataroot_gt: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/train
+    dataroot_lq: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/lq/train
     
-    # Enable Mask Concatenation for Input
-    concat_mask: true
+    # No mask used for input in nomask mode
+    # dataroot_mask is not specified
+    concat_mask: false
 
     filename_tmpl: '{}'
     io_backend:
@@ -34,7 +34,7 @@ datasets:
     # data loader
     use_shuffle: true
     num_worker_per_gpu: 8 
-    batch_size_per_gpu: 64  # GPUメモリを活用して高速化
+    batch_size_per_gpu: 32  # torch.compileメモリ対策
     dataset_enlarge_ratio: 1
     prefetch_mode: cuda
     pin_memory: true
@@ -43,12 +43,11 @@ datasets:
   val:
     name: Kuzushiji_Val
     type: PairedImageMaskDataset
-    dataroot_gt: ../hiragana_fulldataset_5stain/gt/val
-    dataroot_lq: ../hiragana_fulldataset_5stain/lq/val
-    dataroot_mask: ../hiragana_fulldataset_5stain/pred_mask/val
+    dataroot_gt: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/val
+    dataroot_lq: /home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/lq/val
     
-    # Enable Mask Concatenation for Input
-    concat_mask: true
+    # No mask concatenation for validation
+    concat_mask: false
 
     io_backend:
       type: disk
@@ -56,7 +55,7 @@ datasets:
 # network structures
 network_g:
   type: MPRNet
-  in_c: 4                  # RGB + Mask
+  in_c: 3                  # RGB only (no mask)
   out_c: 3
   n_feat: 40               # Feature channels (reduced from 80 for memory)
   scale_unetfeats: 20      # Scale for U-Net features (reduced from 48)
@@ -71,11 +70,11 @@ path:
   pretrain_network_g: ~
   strict_load_g: true
   resume_state: ~
-  experiments_root: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep
-  models: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep/models
-  training_states: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep/training_states
-  log: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep
-  visualization: ../experiments/MPRNet_Kuzushiji_Mask/charb_percep/visualization
+  experiments_root: ../experiments/MPRNet_Kuzushiji_NoMask/charb_percep
+  models: ../experiments/MPRNet_Kuzushiji_NoMask/charb_percep/models
+  training_states: ../experiments/MPRNet_Kuzushiji_NoMask/charb_percep/training_states
+  log: ../experiments/MPRNet_Kuzushiji_NoMask/charb_percep
+  visualization: ../experiments/MPRNet_Kuzushiji_NoMask/charb_percep/visualization
 
 # training settings
 train:
@@ -87,11 +86,11 @@ train:
     weight_decay: !!float 1e-4
     betas: [0.9, 0.999]
 
-  total_iter: 50000       # batch_size=64でNAFNetと同サンプル数 (~10時間)
+  total_iter: 678400      # 200 epochs (3392 iters/epoch * 200) - NAFNetと同じepoch数
   
   scheduler:
     type: CosineAnnealingRestartLR
-    periods: [50000]      # total_iterに合わせる
+    periods: [678400]     # total_iterに合わせる
     restart_weights: [1]
     eta_min: !!float 1e-7
 
@@ -105,8 +104,7 @@ train:
     patience: 15          # 15回改善なしで停止
 
   # ==========================================
-  # Experiment ①: Charbonnier + Perceptual Loss
-  # NAFNetと同じ損失関数設定
+  # Experiment: Charbonnier + Perceptual Loss
   # ==========================================
   pixel_opt:
     type: CharbonnierLoss
@@ -139,21 +137,11 @@ val:
       type: calculate_ssim
       crop_border: 0
       test_y_channel: false
-    masked_psnr:
-      type: calculate_psnr
-      crop_border: 0
-      test_y_channel: false
-      use_mask: true
-    masked_ssim:
-      type: calculate_ssim
-      crop_border: 0
-      test_y_channel: false
-      use_mask: true
 
 # logging settings
 logger:
   print_freq: 200
-  save_checkpoint_freq: !!float 5e3
+  save_checkpoint_freq: !!float 2.5e3  # より頻繁に保存（5000→2500）
   use_tb_logger: true
   wandb:
     project: Kuzushiji_Restoration

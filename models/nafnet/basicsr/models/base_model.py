@@ -273,18 +273,70 @@ class BaseModel():
         net = self.get_bare_model(net)
         logger.info(
             f'Loading {net.__class__.__name__} model from {load_path}.')
-        load_net = torch.load(
-            load_path, map_location=lambda storage, loc: storage)
+        print(f"DEBUG: calling torch.load on {load_path}...", flush=True)
+        try:
+            # load_net = torch.load(load_path, map_location=lambda storage, loc: storage)
+            load_net = torch.load(load_path, map_location='cpu')
+            print("DEBUG: torch.load successful.", flush=True)
+        except Exception as e:
+            print(f"DEBUG: torch.load failed: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            raise e
+
+        print(f"DEBUG: type(load_net): {type(load_net)}", flush=True)
+
         if param_key is not None:
-            load_net = load_net[param_key]
-        print(' load net keys', load_net.keys)
+            print(f"DEBUG: Checking param_key {param_key}...", flush=True)
+            if param_key not in load_net and 'params' in load_net:
+                print(f"Loading: params_key {param_key} not in load_net, using 'params'", flush=True)
+                load_net = load_net['params']
+            elif param_key in load_net:
+                load_net = load_net[param_key]
+            else:
+                print(f"Loading: params_key {param_key} not in load_net, available keys: {load_net.keys()}", flush=True)
+        
+        print("DEBUG: Extracted state dict.", flush=True)
+        print(f' load net keys sample: {list(load_net.keys())[:5]}', flush=True)
+        
         # remove unnecessary 'module.'
-        for k, v in deepcopy(load_net).items():
+        print("DEBUG: Removing 'module.' prefix...", flush=True)
+        # for k, v in deepcopy(load_net).items():
+        keys = list(load_net.keys())
+        for k in keys:
+            v = load_net[k]
             if k.startswith('module.'):
                 load_net[k[7:]] = v
                 load_net.pop(k)
+        print("DEBUG: Prefix removed.", flush=True)
         self._print_different_keys_loading(net, load_net, strict)
-        net.load_state_dict(load_net, strict=strict)
+        print("DEBUG: Loading state_dict to network (manual loop)...", flush=True)
+        # net.load_state_dict(load_net, strict=strict)
+        
+        own_state = net.state_dict()
+        for name, param in load_net.items():
+            if name in own_state:
+                try:
+                    # print(f"DEBUG: Copying {name}...", flush=True)
+                    if isinstance(param, torch.nn.Parameter):
+                        # backwards compatibility for serialized parameters
+                        param = param.data
+                    own_state[name].copy_(param)
+                except Exception as e:
+                    print(f"DEBUG: Failed to copy param {name}: {e}", flush=True)
+                    import traceback
+                    traceback.print_exc()
+                    raise e
+            else:
+                if strict:
+                     print(f"DEBUG: Unexpected key {name} found in checkpoint", flush=True)
+
+        if strict:
+            missing = set(own_state.keys()) - set(load_net.keys())
+            if missing:
+                print(f"DEBUG: Missing keys: {list(missing)[:5]}...", flush=True)
+        
+        print("DEBUG: Network loaded state_dict manually.", flush=True)
 
     @master_only
     def save_training_state(self, epoch, current_iter):
