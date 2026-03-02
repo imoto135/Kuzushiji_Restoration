@@ -427,19 +427,19 @@ if __name__ == "__main__":
                         default="/home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/test",
                         help='正解画像 (Ground Truth) のフォルダ')
     parser.add_argument('--pred_dir', type=str, 
-                        default="outputs/mprnet_predmask_charbpercep",
+                        default="outputs/nafnet_gtmask_charbpercep",
                         help='修復画像 (Restored/Output) のフォルダ')
     parser.add_argument('--mask_dir', type=str, 
                         default="/home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt_mask/test",
                         help='文字領域マスク (Mask) のフォルダ')
     parser.add_argument('--output_csv', type=str, 
-                        default="outputs/mprnet_predmask_charbpercep/evaluation__mask_charbpercep.csv",
+                        default="outputs/nafnet_gtmask_charbpercep/evaluation_nafnet_gtmask_charbpercep.csv",
                         help='出力CSVファイルパス')
     
     # wandb設定
     parser.add_argument('--use_wandb', action='store_true', help='wandbに結果を記録する')
     parser.add_argument('--wandb_project', type=str, default='Kuzushiji_Restoration', help='wandbプロジェクト名')
-    parser.add_argument('--wandb_name', type=str, default="eval_swinir_charbpercep", help='wandb run名 (未指定なら自動生成)')
+    parser.add_argument('--wandb_name', type=str, default="eval_nafnet_gtmask_charbpercep", help='wandb run名 (未指定なら自動生成)')
     parser.add_argument('--wandb_job_type', type=str, default='evaluation', help='wandbジョブタイプ')
     parser.add_argument('--wandb_tags', type=str, nargs='+', default=None, help='wandbタグ')
 

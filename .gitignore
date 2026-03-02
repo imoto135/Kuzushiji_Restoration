@@ -54,17 +54,18 @@ data/hiragana_fulldataset_5stain/
 *.zip
 *.tar.gz
 *.tar
-
+*.sh
 # Outputs (サンプル以外)
 outputs/*
 !outputs/sample_results/
 !outputs/sample_results/*.png
 !outputs/sample_results/*.jpg
 !outputs/.gitkeep
-
+*.jpg
+*.png   
 # Archive
 archive/
-
+data/
 # Temporary files
 tmp/
 temp/

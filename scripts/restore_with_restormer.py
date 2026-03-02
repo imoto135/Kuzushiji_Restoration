@@ -272,12 +272,12 @@ def main():
     parser = argparse.ArgumentParser(description='Restore images using Restormer')
     parser.add_argument('--lq_dir', type=str, default='data/hiragana_fulldataset_5stain/lq/test',
                         help='劣化画像のディレクトリ')
-    parser.add_argument('--mask_dir', type=str, default='data/hiragana_fulldataset_5stain/pred_mask/test',
+    parser.add_argument('--mask_dir', type=str, default='data/hiragana_fulldataset_5stain/gt_mask/test',
                         help='予測マスクのディレクトリ')
-    parser.add_argument('--output_dir', type=str, default='results/restormer_restored_charbpercep',
+    parser.add_argument('--output_dir', type=str, default='outputs/restormer_gtmask_charbpercep',
                         help='出力ディレクトリ')
     parser.add_argument('--weights', type=str, 
-                        default='models/restormer/experiments/Restormer_PredMask_CharbPercep_v2/models/net_g_195000.pth',
+                        default='models/restormer/experiments/Restormer_GTMask_CharbPercep/models/net_g_200000.pth',
                         help='モデルの重みファイルパス')
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu',
                         help='使用するデバイス')
@@ -304,9 +304,24 @@ def main():
     # 各画像を処理
     for img_name in tqdm(lq_images):
         lq_path = os.path.join(args.lq_dir, img_name)
-        mask_path = os.path.join(args.mask_dir, img_name)
+        # LQ画像名から損傷種別サフィックスを除いてgt_maskファイル名を導出
+        # 例: U+3042_xxx_Stain.jpg -> U+3042_xxx.jpg
+        stem = Path(img_name).stem
+        suffix = Path(img_name).suffix
+        damage_types = ['_Transparent_Stain', '_Missing', '_Stain', '_Scratch', '_Ghosting']
+        mask_stem = stem
+        for dt in damage_types:
+            if mask_stem.endswith(dt):
+                mask_stem = mask_stem[:-len(dt)]
+                break
+        mask_filename = mask_stem + suffix
+        mask_path = os.path.join(args.mask_dir, mask_filename)
+        # .jpg で見つからなければ .png も試す
+        if not os.path.exists(mask_path):
+            mask_path = os.path.join(args.mask_dir, mask_stem + '.png')
+
         output_path = os.path.join(args.output_dir, img_name)
-        
+
         if not os.path.exists(mask_path):
             logging.warning(f"Mask not found for {img_name}, skipping")
             continue

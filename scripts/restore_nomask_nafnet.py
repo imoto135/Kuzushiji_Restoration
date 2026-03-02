@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-SwinIRを使用したくずし字画像修復スクリプト
-学習済みモデル (net_g_200000.pth) を使用して損傷画像を修復します。
+NAFNetを使用したくずし字画像修復スクリプト (マスクなし)
+最高精度を記録した学習済みモデル (net_g_160000.pth) を使用して損傷画像を修復します。
 """
 
 import sys
@@ -17,16 +17,16 @@ import cv2
 nafnet_path = Path(__file__).parent.parent / "models" / "nafnet"
 sys.path.insert(0, str(nafnet_path))
 
-from basicsr.models.archs.SwinIR_arch import SwinIR
+from basicsr.models.archs.NAFNet_arch import NAFNet
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="SwinIR Image Restoration for Kuzushiji")
+    parser = argparse.ArgumentParser(description="NAFNet Image Restoration (No Mask) for Kuzushiji")
     
     parser.add_argument(
         "--weights",
         type=str,
-        default="models/swinir/experiments/SwinIR_Kuzushiji_GTMask_CharbPercep/models/net_g_200000.pth",
+        default="models/nafnet/experiments/NAFNet_Kuzushiji_NoMask_CharbPercep/models/net_g_160000.pth",
         help="Path to trained model weights"
     )
     parser.add_argument(
@@ -38,49 +38,51 @@ def parse_args():
     parser.add_argument(
         "--output-dir",
         type=str,
-        default="outputs/swinir_gtmask_charbpercep",
+        default="outputs/nafnet_nomask_charbpercep",
         help="Directory to save restored images"
-    )
-    parser.add_argument(
-        "--mask-dir",
-        type=str,
-        default="data/hiragana_fulldataset_5stain/gt_mask/test",
-        help="Directory containing damage masks"
     )
     
     # wandb設定
     parser.add_argument('--use_wandb', action='store_true', help='wandbに結果を記録する')
     parser.add_argument('--wandb_project', type=str, default='Kuzushiji_Restoration', help='wandbプロジェクト名')
-    parser.add_argument('--wandb_name', type=str, default=None, help='wandb run名')
-    parser.add_argument('--wandb_tags', type=str, nargs='+', default=None, help='wandbタグ')
+    parser.add_argument('--wandb_name', type=str, default='NAFNet_NoMask_Inference', help='wandb run名')
+    parser.add_argument('--wandb_tags', type=str, nargs='+', default=['inference', 'nafnet'], help='wandbタグ')
     
     return parser.parse_args()
 
 
 def load_model(weights_path, device):
-    """SwinIRモデルをロード"""
+    """NAFNetモデルをロード"""
     logging.info(f"Loading model from {weights_path}")
     
-    model = SwinIR(
-        upscale=1,
-        in_chans=4,           # RGB + Mask
-        out_chans=3,          # RGB出力（学習時のYML設定に合わせる）
-        img_size=128,
-        patch_size=1,
-        window_size=8,
-        img_range=1.0,
-        depths=[6, 6, 6, 6],
-        embed_dim=60,
-        num_heads=[6, 6, 6, 6],
-        mlp_ratio=2.0,
-        upsampler='',         # '' = denoising mode (学習時の設定)
-        resi_connection='1conv'
+    model = NAFNet(
+        img_channel=3,
+        width=32,
+        middle_blk_num=12,
+        enc_blk_nums=[2, 2, 4, 8],
+        dec_blk_nums=[2, 2, 2, 2]
     )
     
-    checkpoint = torch.load(weights_path, map_location=device)
-    state_dict = checkpoint['params'] if 'params' in checkpoint else checkpoint
+    checkpoint = torch.load(weights_path, map_location='cpu')
     
-    model.load_state_dict(state_dict, strict=False)
+    if 'params' in checkpoint:
+        state_dict = checkpoint['params']
+    elif 'state_dict' in checkpoint:
+        state_dict = checkpoint['state_dict']
+    else:
+        state_dict = checkpoint
+        
+    # 余分なキーの削除と 'module.' の削除
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        if 'total_ops' in k or 'total_params' in k:
+            continue
+        if k.startswith('module.'):
+            new_state_dict[k[7:]] = v
+        else:
+            new_state_dict[k] = v
+            
+    model.load_state_dict(new_state_dict, strict=True)
     model.eval()
     model = model.to(device)
     
@@ -88,42 +90,35 @@ def load_model(weights_path, device):
     return model
 
 
-def process_image(model, img_path, mask_path, device):
-    """単一画像の修復処理"""
+def process_image(model, img_path, device):
+    """単一画像の修復処理 (マスクなし)"""
     
     # 画像読み込み (BGR)
     img_bgr = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+    if img_bgr is None:
+        raise ValueError(f"Failed to read image: {img_path}")
+        
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    
-    # マスク読み込み
-    if mask_path and mask_path.exists():
-        mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-    else:
-        mask = np.zeros((img_rgb.shape[0], img_rgb.shape[1]), dtype=np.uint8)
     
     # 正規化: [0, 255] -> [0, 1]
     img_normalized = img_rgb.astype(np.float32) / 255.0
-    mask_normalized = mask.astype(np.float32) / 255.0
     
     # HWC -> CHW
     img_tensor = torch.from_numpy(np.transpose(img_normalized, (2, 0, 1))).float()
-    mask_tensor = torch.from_numpy(mask_normalized).unsqueeze(0).float()
     
     # バッチ次元追加とデバイス移動
     img_tensor = img_tensor.unsqueeze(0).to(device)
-    mask_tensor = mask_tensor.unsqueeze(0).to(device)
     
-    # 入力結合 (RGB + Mask)
-    input_tensor = torch.cat([img_tensor, mask_tensor], dim=1)
-    
-    # 推論
+    # 推論 (No Mask)
     with torch.no_grad():
-        output = model(input_tensor)
+        output = model(img_tensor)
+        if isinstance(output, list):
+            output = output[-1]
     
     # テンソル -> numpy: [0, 1] -> [0, 255]
-    output_np = output.squeeze(0).cpu().numpy()
+    output_np = output.squeeze(0).cpu().clamp(0, 1).numpy()
     output_np = np.transpose(output_np, (1, 2, 0))  # CHW -> HWC
-    output_np = np.clip(output_np * 255.0, 0, 255).astype(np.uint8)
+    output_np = (output_np * 255.0).astype(np.uint8)
     
     # RGB -> BGR (OpenCV用)
     output_bgr = cv2.cvtColor(output_np, cv2.COLOR_RGB2BGR)
@@ -133,6 +128,12 @@ def process_image(model, img_path, mask_path, device):
 
 def main():
     args = parse_args()
+    
+    # ロギング設定
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s"
+    )
     
     # wandb初期化
     if args.use_wandb:
@@ -145,12 +146,6 @@ def main():
             config=vars(args)
         )
     
-    # ロギング設定
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s"
-    )
-    
     # デバイス設定
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
@@ -159,8 +154,6 @@ def main():
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    
-    mask_dir = Path(args.mask_dir) if args.mask_dir else None
     
     # 画像ファイルのリスト取得
     image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff']
@@ -182,7 +175,7 @@ def main():
     if args.use_wandb:
         try:
             from thop import profile
-            dummy_input = torch.randn(1, 4, 128, 128).to(device)
+            dummy_input = torch.randn(1, 3, 128, 128).to(device)
             flops, params = profile(model, inputs=(dummy_input,), verbose=False)
             wandb.log({
                 "model/FLOPs_G": flops / 1e9,
@@ -196,29 +189,8 @@ def main():
     processed_count = 0
     for img_path in tqdm(image_files, desc="Restoring images"):
         try:
-            # 対応するマスクファイルを探す
-            stem = Path(img_path).stem
-            suffix = Path(img_path).suffix
-            damage_types = ['_Transparent_Stain', '_Missing', '_Stain', '_Scratch', '_Ghosting']
-            mask_stem = stem
-            for dt in damage_types:
-                if mask_stem.endswith(dt):
-                    mask_stem = mask_stem[:-len(dt)]
-                    break
-            
-            mask_path = None
-            if mask_dir:
-                mask_filename = mask_stem + suffix
-                mask_path_candidate = mask_dir / mask_filename
-                if mask_path_candidate.exists():
-                    mask_path = mask_path_candidate
-                else:
-                    mask_path_candidate = mask_dir / (mask_stem + '.png')
-                    if mask_path_candidate.exists():
-                        mask_path = mask_path_candidate
-            
-            # 画像修復
-            restored_img = process_image(model, img_path, mask_path, device)
+            # 画像修復 (マスクなし)
+            restored_img = process_image(model, img_path, device)
             
             # 結果保存
             output_path = output_dir / f"{img_path.stem}_restored.png"

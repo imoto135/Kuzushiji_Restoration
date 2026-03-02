@@ -60,6 +60,17 @@ def parse_options(is_train=True):
     if seed is None:
         seed = random.randint(1, 10000)
         opt['manual_seed'] = seed
+    # Fix experiments path overwriting from nafnet/options.py
+    import os
+    swinir_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    opt['path']['root'] = swinir_root
+    exp_root = os.path.join(swinir_root, 'experiments', opt['name'])
+    opt['path']['experiments_root'] = exp_root
+    opt['path']['models'] = os.path.join(exp_root, 'models')
+    opt['path']['training_states'] = os.path.join(exp_root, 'training_states')
+    opt['path']['log'] = exp_root
+    opt['path']['visualization'] = os.path.join(exp_root, 'visualization')
+
     set_random_seed(seed + opt['rank'])
 
     if args.input_path is not None and args.output_path is not None:
