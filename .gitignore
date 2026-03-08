@@ -86,6 +86,7 @@ temp/
 *.fdb_latexmk
 *.fls
 *.synctex.gz
+*.tex
 
 # Conda
 Miniconda*.sh

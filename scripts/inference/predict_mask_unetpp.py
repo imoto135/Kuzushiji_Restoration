@@ -9,19 +9,19 @@ UNet++ (SE-ResNeXt-50) を使って損傷くずし字画像からキャラクタ
 
   # train / val / test すべてを一括処理 (デフォルト: ソフトマスク出力):
   python scripts/inference/predict_mask_unetpp.py \
-      --input_dir  data/hiragana_fulldataset_5stain/lq \
+      --input_dir  data/full_padded/lq \
       --output_dir outputs/pred_masks_unetpp \
       --model_path models/unet++/experiments/unet++_full_characters/best_model.pth
 
   # ハードマスク (0/255) も同時に保存する場合:
   python scripts/inference/predict_mask_unetpp.py \
-      --input_dir  data/hiragana_fulldataset_5stain/lq \
+      --input_dir  data/full_padded/lq \
       --output_dir outputs/pred_masks_unetpp \
       --save_binary
 
   # 特定のサブセットだけ処理 (例: test のみ):
   python scripts/inference/predict_mask_unetpp.py \
-      --input_dir  data/hiragana_fulldataset_5stain/lq \
+      --input_dir  data/full_padded/lq \
       --output_dir outputs/pred_masks_unetpp \
       --splits test
 
