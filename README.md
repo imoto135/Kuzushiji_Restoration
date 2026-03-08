@@ -1,37 +1,37 @@
-# 🎨 Kuzushiji Restoration: Deep Learning-Based Historical Japanese Document Restoration
+# 🎨 Kuzushiji Restoration: Deep Learning-Based Historical Document Restoration
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> **研究プロジェクト**: くずし字（崩し字）を含む歴史的日本語文書の劣化修復に向けた、最先端深層学習モデルの比較研究
+> **Research Project**: A comprehensive benchmark of mask-guided modern architectures for the restoration of physically damaged Kuzushiji (historical Japanese cursive) documents.
 
 ---
 
-## 📖 概要 / Overview
+## 📖 Overview
 
-本プロジェクトでは、シミ・かすれ・スクラッチ等の劣化を受けた歴史的日本語文書（くずし字）の画像復元を目的として、4種の最先端深層学習モデルを実装・比較します。
+Historical Japanese documents (Kuzushiji) are vital for cultural research but suffer from significant physical degradation such as stains, scratches, and missing parts. These degradations impede both manual transcription and automated Optical Character Recognition (OCR).
 
-**解決すべき課題**：
-- 歴史的文書は経年劣化（シミ・退色・スクラッチ・透過シミなど5種類）により判読困難になる
-- くずし字は現代人には読みにくく、高精度な復元が文化財のデジタル保存・研究に貢献する
-- 単純な画像復元モデルでは文字領域と背景劣化を区別できない
+This project proposes a robust two-stage framework:
+1. **Damage Localization**: Employs an optimized UNet++ architecture to perform pixel-wise damage segmentation.
+2. **Selective Restoration**: Uses the generated masks as guidance (4-channel input: RGB + Mask) across four state-of-the-art architectures (NAFNet, SwinIR, Restormer, MPRNet) to selectively restore the character strokes.
 
-**本研究のアプローチ**：
-文字セグメンテーション（Stage 1）と画像復元（Stage 2）の**二段階パイプライン**を構築し、文字マスクを補助情報として活用することで、より精密な復元を実現します。
+**Key Finding**: Among the evaluated models, **NAFNet** achieves the best performance in terms of perceptual quality (LPIPS) and downstream OCR accuracy, making it the most effective architecture for preserving the delicate structural integrity of cursive strokes.
 
 ---
 
 ## 🏆 Results Summary
 
-| Model | Parameters | Best PSNR | Best SSIM | Best LPIPS | Iterations |
-|-------|-----------|-----------|-----------|------------|------------|
-| **Restormer** | 26.1M | **37.76 dB** | **0.9837** | **0.0214** | 195k |
-| **SwinIR** | 11.8M | 37.18 dB | 0.9823 | 0.0231 | 200k |
-| **MPRNet** | 11.9M | 37.12 dB | 0.9819 | 0.0248 | 50k |
-| **NAFNet** | 29.1M | *(training in progress)* | — | — | — |
+Performance evaluated on an independent test set using Stage 1 Predicted Masks across 5 different damage types.
 
-> Restormer が最も高いPSNR・SSIMを達成。TransformerベースのGlobal Attentionが文字の細部復元に有効と考えられます。
+| Model | Params (M) | FLOPs (G) | PSNR | SSIM | LPIPS ↓ | OCR Acc. ↑ |
+|-------|-----------:|----------:|------:|------:|---------:|-----------:|
+| **MPRNet**    | 20.13 | 141.6 | 36.98 | 0.9668 | 0.0215 | 97.97% |
+| **SwinIR**    | 11.90 | 49.3  | 36.92 | **0.9671** | 0.0229 | 97.96% |
+| **Restormer** | 26.10 | 16.1  | 34.40 | 0.9592 | 0.0289 | 97.92% |
+| **NAFNet**    | **9.25** | **14.8**  | 36.69 | 0.9650 | **0.0205** | **97.97%** |
+
+> **Conclusion**: NAFNet provides the best trade-off. It achieves top-tier OCR accuracy (matching MPRNet) and the best perceptual quality (LPIPS: 0.0205) while requiring the fewest parameters and lowest computational cost.
 
 ---
 
@@ -44,84 +44,59 @@ Degraded Image
       │
       ▼
 ┌─────────────────────────┐
-│  Stage 1: Segmentation  │  ← UNet++ (EfficientNet-B4 encoder)
-│  Input : RGB (256×256)  │
+│  Stage 1: Segmentation  │  ← Optimized UNet++ (SE-ResNeXt-50 encoder)
+│  Input : RGB            │
 │  Output: Binary Mask    │
 └──────────┬──────────────┘
            │  Predicted Mask
            ▼
 ┌──────────────────────────────┐
-│  Stage 2: Restoration        │  ← NAFNet / MPRNet / SwinIR / Restormer
+│  Stage 2: Restoration        │  ← Mask-guided NAFNet (Selected Backbone)
 │  Input : 4-ch (RGB + Mask)   │
 │  Output: Restored RGB Image  │
 └──────────────────────────────┘
 ```
 
 #### Stage 1: Character Segmentation
-- **モデル**: U-Net++ (EfficientNet-B4 encoder, ImageNet pretrained)
-- **入力**: 劣化RGB画像（256×256）
-- **出力**: 文字領域の二値マスク
-- **目的**: 文字ピクセルと劣化背景ピクセルを分離し、後段の復元モデルに手がかりを与える
+- **Architecture**: U-Net++ with SE-ResNeXt-50 encoder.
+- **Optimization**: Trained with a hybrid loss function ($0.5\, \text{Dice} + 0.5\, \text{BCE}$) and deep supervision.
+- **Goal**: Generate highly precise representations of exactly where the document is damaged.
 
 #### Stage 2: Image Restoration
-- **モデル**: NAFNet / MPRNet / SwinIR / Restormer（4モデルを同条件で比較）
-- **入力**: 4チャンネル（RGB 3ch + 予測マスク 1ch）
-- **出力**: 復元RGB画像
-- **損失関数**: Charbonnier Loss + Perceptual Loss（VGG19, `conv5_4` layer, weight=0.1）
+- **Modified Architectures**: Adapted to accept a 4-channel input (RGB + Mask).
+- **Mask Guidance**: Forces the network to focus computational resources on damaged regions while preserving original strokes in clean areas.
 
-### Training Configuration
-
-| Setting | Value |
-|---------|-------|
-| Optimizer | AdamW (lr=1e-3, betas=[0.9, 0.9]) |
-| Scheduler | CosineAnnealingRestartLR |
-| Batch Size | 64 (NAFNet) / 8 (Restormer) |
-| Patch Size | 128×128 |
-| Mixed Precision | AMP (fp16) |
-| Validation | Every 5,000 iterations |
-| Early Stopping | LPIPS-based (patience=10) |
-
-### Degradation Types
-
-学習・評価に使用した5種類の合成劣化：
-
-| Type | 説明 |
-|------|------|
-| Stain | 局所的なシミ（茶色・黒） |
-| Transparent Stain | 半透明の染み |
-| Scratch | 線状のスクラッチ |
-| Ghosting | 裏写り・ゴースト |
-| Missing | 部分的な文字欠損 |
+### Evaluated Degradation Types
+Based on realistic archival damage patterns:
+1. **Ghosting**: Ink bleeding from the reverse side.
+2. **Missing**: Missing image fragments simulating physical tearing.
+3. **Abrasion**: Faded regions from surface wear.
+4. **Stain**: Dark, opaque spots overlapping characters.
+5. **Transparent Stain**: Semi-transparent, water-damage-like regions.
 
 ---
 
 ## 📁 Project Structure
 
-```
+```text
 Kuzushiji_Restoration/
-├── configs/                           # 学習設定ファイル (YAML)
-│   ├── nafnet/Kuzushiji/              # NAFNet 各種実験設定
-│   ├── swinir/                        # SwinIR 各種実験設定
-│   ├── restormer/                     # Restormer 各種実験設定
-│   └── mprnet/                        # MPRNet 各種実験設定
-├── models/                            # モデル実装
-│   ├── nafnet/                        # NAFNet (BasicSR ベース)
-│   ├── swinir/                        # SwinIR (BasicSR ベース)
-│   ├── restormer/                     # Restormer (BasicSR ベース)
-│   └── mprnet/                        # MPRNet (BasicSR ベース)
+├── configs/                           # Training Configurations (YAML)
+├── models/                            # Model implementations (BasicSR-based)
+│   ├── nafnet/                        # Selected NAFNet architecture
+│   ├── swinir/
+│   ├── restormer/
+│   └── mprnet/
 ├── scripts/
-│   ├── data_preprocessing/            # データ前処理
-│   │   ├── 01_pad_images.py           # 画像のパディング (128×128)
-│   │   ├── 02_generate_otsu_masks.py  # 大津の二値化によるGTマスク生成
-│   │   └── add_stain_5types.py        # 5種類の合成劣化付与
-│   ├── evaluation/                    # 評価スクリプト
-│   │   ├── calculate_5metrics.py      # PSNR / SSIM / LPIPS / FID / NIQE 計算
-│   │   └── create_comparison_image.py # 複数モデルの比較画像生成
-│   └── restore_with_*.py              # 各モデルの推論スクリプト
-├── environments/                      # Conda 環境ファイル
-└── data/                              # データセット (Git 管理外)
+│   ├── data_preprocessing/            # Padding, augmentation, Otsu mask generation
+│   ├── evaluation/                    # PSNR, SSIM, LPIPS, OCR evaluation scripts
+│   └── restore_with_*.py              # Inference scripts for each architecture
+├── environments/                      # Conda environments
+└── data/                              # Dataset Directory
     └── full_padded/
-        ├── gt/   lq/   gt_mask/   pred_mask/
+        ├── gt/                        # Ground Truth Images
+        ├── lq/                        # Low Quality (Degraded) Images
+        ├── gt_mask/                   # Ideal Masks
+        └── pred_mask/                 # Masks generated by Stage 1 UNet++
 ```
 
 ---
@@ -134,96 +109,56 @@ Kuzushiji_Restoration/
 git clone https://github.com/imoto135/Kuzushiji_Restoration.git
 cd Kuzushiji_Restoration
 
-# NAFNet / SwinIR / Restormer 用
+# Create Conda environment
 conda env create -f environments/env_nafnet2.yml
 conda activate nafnet2
 ```
 
 ### 2. Dataset Preparation
 
-```bash
-# データセットは data/full_padded/ 以下に配置
-# gt/ : Ground Truth画像
-# lq/ : 劣化画像 (5種のaugmentation適用済み)
-# gt_mask/   : 大津の二値化によるGTマスク
-# pred_mask/ : Stage 1 (UNet++) による予測マスク
+Ensure your dataset is placed under `data/full_padded/` following the directory structure above.
 
+```bash
+# Example: Generate padding and GT (Otsu) masks
 python scripts/data_preprocessing/01_pad_images.py
 python scripts/data_preprocessing/02_generate_otsu_masks.py
 ```
 
-### 3. Training
+### 3. Inference using NAFNet
+
+Use the provided inference script to run the two-stage pipeline on damaged test images. By default, it uses the directory structure from `data/full_padded/`.
 
 ```bash
-# 例: Restormer (Charbonnier + Perceptual Loss, Mask入力あり)
-cd models/restormer
-python basicsr/train.py -opt ../../configs/restormer/Kuzushiji/gtmask_charb_percep.yml
-
-# 例: NAFNet (フルデータセット, Mask入力あり)
-cd models/nafnet
-python launch_train.py --opt ../../configs/nafnet/Kuzushiji/full_mask_charb_percep.yml
-```
-
-### 4. Inference
-
-```bash
-# Restormer による推論
-python scripts/restore_with_restormer.py \
-    --input_dir data/full_padded/lq/test \
-    --mask_dir  data/full_padded/pred_mask/test \
-    --output_dir outputs/restormer_gtmask
-
-# NAFNet による推論
 python scripts/restore_with_nafnet.py \
-    --input_dir data/full_padded/lq/test \
-    --output_dir outputs/nafnet_test
+    --input-dir data/full_padded/lq/test \
+    --output-dir outputs/nafnet_test \
+    --mask-dir data/full_padded/pred_mask/test
 ```
 
-### 5. Evaluation
+### 4. Evaluation
+
+Evaluate the restored images against the ground truth using standard and mask-specific metrics.
 
 ```bash
 python scripts/evaluation/calculate_5metrics.py \
     --gt_dir data/full_padded/gt/test \
-    --restored_dir outputs/restormer_gtmask \
-    --output_csv outputs/restormer_metrics.csv
+    --restored_dir outputs/nafnet_test \
+    --output_csv outputs/nafnet_metrics.csv
 ```
-
----
-
-## 🛠️ Technical Stack
-
-| Category | Tool / Library |
-|----------|---------------|
-| Deep Learning | PyTorch 2.0+, CUDA |
-| Framework | BasicSR (Image Restoration Toolkit) |
-| Segmentation | segmentation_models_pytorch (UNet++) |
-| Metrics | PSNR, SSIM, LPIPS (lpips), FID (pytorch-fid), NIQE |
-| Monitoring | Weights & Biases (wandb), TensorBoard |
-| Hardware | NVIDIA RTX A6000 (48GB) |
-| Environment | Conda, Python 3.9+ |
 
 ---
 
 ## 📚 References
 
-### Models
-
-1. **NAFNet**: Chen et al., "Simple Baselines for Image Restoration", ECCV 2022
-   - [Paper](https://arxiv.org/abs/2204.04676) | [Code](https://github.com/megvii-research/NAFNet)
-
-2. **MPRNet**: Zamir et al., "Multi-Stage Progressive Image Restoration", CVPR 2021
-   - [Paper](https://arxiv.org/abs/2102.02808) | [Code](https://github.com/swz30/MPRNet)
-
-3. **SwinIR**: Liang et al., "SwinIR: Image Restoration Using Swin Transformer", ICCV 2021
-   - [Paper](https://arxiv.org/abs/2108.10257) | [Code](https://github.com/JingyunLiang/SwinIR)
-
-4. **Restormer**: Zamir et al., "Restormer: Efficient Transformer for High-Resolution Image Restoration", CVPR 2022
-   - [Paper](https://arxiv.org/abs/2111.09881) | [Code](https://github.com/swz30/Restormer)
+### Model Architectures
+- **NAFNet**: Chen et al., "Simple Baselines for Image Restoration", ECCV 2022 [[Paper]](https://arxiv.org/abs/2204.04676)
+- **MPRNet**: Zamir et al., "Multi-Stage Progressive Image Restoration", CVPR 2021 [[Paper]](https://arxiv.org/abs/2102.02808)
+- **SwinIR**: Liang et al., "SwinIR: Image Restoration Using Swin Transformer", ICCV 2021 [[Paper]](https://arxiv.org/abs/2108.10257)
+- **Restormer**: Zamir et al., "Restormer: Efficient Transformer for High-Resolution Image Restoration", CVPR 2022 [[Paper]](https://arxiv.org/abs/2111.09881)
+- **UNet++**: Zhou et al., "UNet++: A Nested U-Mac Architecture for Medical Image Segmentation" [[Paper]](https://arxiv.org/abs/1807.10165)
 
 ### Dataset
-
 - **Kuzushiji Dataset**: Center for Open Data in the Humanities (CODH)
-- Clanuwat et al., "Deep Learning for Classical Japanese Literature", NeurIPS Workshop 2018
 
 ---
 
@@ -232,11 +167,9 @@ python scripts/evaluation/calculate_5metrics.py \
 This project is licensed under the MIT License.
 
 ### Third-Party Licenses
-
 - BasicSR: [Apache License 2.0](https://github.com/XPixelGroup/BasicSR/blob/master/LICENSE)
-- NAFNet: [Apache License 2.0](https://github.com/megvii-research/NAFNet/blob/main/LICENSE)
-- MPRNet / Restormer: [MIT License](https://github.com/swz30/MPRNet/blob/main/LICENSE)
-- SwinIR: [Apache License 2.0](https://github.com/JingyunLiang/SwinIR/blob/main/LICENSE)
+- NAFNet, SwinIR: Apache License 2.0
+- MPRNet, Restormer: MIT License
 
 ---
 
@@ -244,12 +177,3 @@ This project is licensed under the MIT License.
 
 **Imoto** — [@imoto135](https://github.com/imoto135)
 
-Project: [https://github.com/imoto135/Kuzushiji_Restoration](https://github.com/imoto135/Kuzushiji_Restoration)
-
----
-
-## 🙏 Acknowledgments
-
-- Center for Open Data in the Humanities (CODH) for the Kuzushiji dataset
-- BasicSR team for the excellent restoration framework
-- Authors of NAFNet, MPRNet, SwinIR, and Restormer for their outstanding work
