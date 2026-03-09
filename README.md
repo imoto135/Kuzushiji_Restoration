@@ -9,7 +9,7 @@
 ---
 
 ## 📖 Overview
-![Results Overview](images/results1.png)
+![Results Overview](images/results2.png)
 
 Historical Japanese documents (Kuzushiji) are vital for cultural research but suffer from significant physical degradation such as stains, scratches, and missing parts. These degradations impede both manual transcription and automated Optical Character Recognition (OCR).
 
