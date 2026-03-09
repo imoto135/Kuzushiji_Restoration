@@ -9,6 +9,7 @@
 ---
 
 ## 📖 Overview
+![Results Overview](images/results1.png)
 
 Historical Japanese documents (Kuzushiji) are vital for cultural research but suffer from significant physical degradation such as stains, scratches, and missing parts. These degradations impede both manual transcription and automated Optical Character Recognition (OCR).
 
@@ -38,24 +39,7 @@ Performance evaluated on an independent test set using Stage 1 Predicted Masks a
 ## 🔬 Methodology
 
 ### Two-Stage Pipeline
-
-```
-Degraded Image
-      │
-      ▼
-┌─────────────────────────┐
-│  Stage 1: Segmentation  │  ← Optimized UNet++ (SE-ResNeXt-50 encoder)
-│  Input : RGB            │
-│  Output: Binary Mask    │
-└──────────┬──────────────┘
-           │  Predicted Mask
-           ▼
-┌──────────────────────────────┐
-│  Stage 2: Restoration        │  ← Mask-guided NAFNet (Selected Backbone)
-│  Input : 4-ch (RGB + Mask)   │
-│  Output: Restored RGB Image  │
-└──────────────────────────────┘
-```
+![Chart Overview](images/chart_overview.png)
 
 #### Stage 1: Character Segmentation
 - **Architecture**: U-Net++ with SE-ResNeXt-50 encoder.

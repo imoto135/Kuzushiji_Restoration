@@ -1,13 +1,19 @@
 import os
+import re
 import csv
+import math
 import torch
 import lpips
 import cv2
 import numpy as np
 from PIL import Image
 from torchvision import transforms
-from skimage.metrics import structural_similarity as ssim
+from skimage.metrics import structural_similarity as ssim_sk
 from tqdm import tqdm
+import multiprocessing as mp
+from multiprocessing import cpu_count
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 
 def calculate_masked_metrics(img_true, img_test, mask):
     """
@@ -63,7 +69,7 @@ def calculate_masked_metrics(img_true, img_test, mask):
         img_test_gray = img_test
 
     # skimage の ssim で full map を取得
-    _, ssim_map = ssim(img_true_gray, img_test_gray, full=True, data_range=255)
+    _, ssim_map = ssim_sk(img_true_gray, img_test_gray, full=True, data_range=255)
 
     # マスク領域内の平均を取る（mask_bool は 2D）
     try:
@@ -126,7 +132,7 @@ def calculate_ssim(img_true, img_test):
         img_test_gray = img_test
     
     # SSIM計算
-    ssim_value = ssim(img_true_gray, img_test_gray, data_range=255)
+    ssim_value = ssim_sk(img_true_gray, img_test_gray, data_range=255)
     return float(ssim_value)
 
 
@@ -177,6 +183,33 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters())
 
 
+def _cpu_worker(key_paths):
+    """
+    並列ワーカー: CPU で PSNR / SSIM / Masked 指標を計算して返す。
+    LPIPS は GPU バッチで別途計算するため含まない。
+    引数: (key, path_gt, path_pred, path_mask)
+    戻り値: (key, score_psnr, score_ssim, score_masked_psnr, score_masked_ssim) or None
+    """
+    key, path_gt, path_pred, path_mask = key_paths
+    try:
+        cv_gt   = cv2.imread(path_gt)
+        cv_pred = cv2.imread(path_pred)
+        cv_mask = cv2.imread(path_mask, cv2.IMREAD_GRAYSCALE)
+        if cv_gt is None or cv_pred is None or cv_mask is None:
+            return None
+
+        score_psnr = calculate_psnr(cv_gt, cv_pred)
+        score_ssim = calculate_ssim(cv_gt, cv_pred)
+        score_masked_psnr, score_masked_ssim = calculate_masked_metrics(cv_gt, cv_pred, cv_mask)
+
+        if np.isnan(score_masked_psnr) or np.isnan(score_masked_ssim):
+            return None
+
+        return (key, score_psnr, score_ssim, score_masked_psnr, score_masked_ssim)
+    except Exception:
+        return None
+
+
 def calculate_flops(model, input_size=(1, 4, 128, 128)):
     """
     FLOPsを計算（thopまたはfvcore使用）
@@ -207,17 +240,12 @@ def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use
     """
     
     # 1. LPIPSモデルの準備
-    print("LPIPSモデルを読み込んでいます...")
+    print("LPIPSモデルを読み込んでいます...", flush=True)
     loss_fn = lpips.LPIPS(net='alex')
     device = torch.device("cuda" if torch.cuda.is_available() and use_gpu else "cpu")
     loss_fn.to(device)
     loss_fn.eval()
 
-    # LPIPS用画像前処理
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-    ])
 
     # 2. インデックスを構築
     print("ファイルインデックスを構築中...")
@@ -268,59 +296,83 @@ def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use
     print(f"計算開始: {len(common_keys)} 枚の画像を処理します...")
     print(f"  GT: {len(gt_index)} 枚, Pred: {len(pred_index)} 枚, Mask: {len(mask_index)} 枚")
 
-    # 3. ループ処理
-    for key in tqdm(common_keys, desc="Processing"):
-        path_gt = gt_index[key]
-        path_pred = pred_index[key]
-        path_mask = mask_index[key]
-        
-        filename = os.path.basename(path_pred)  # 出力用にpredのファイル名を使用
+    # 3. CPU 指標計算（ThreadPoolExecutor: wandb.initと共存可能、forkより安全）
+    args_list = [
+        (key, gt_index[key], pred_index[key], mask_index[key])
+        for key in common_keys
+    ]
 
-        try:
-            # --- LPIPS計算 (PyTorch/PIL使用) ---
-            img_gt_pil = Image.open(path_gt).convert('RGB')
-            img_pred_pil = Image.open(path_pred).convert('RGB')
-            # make sure prediction has same size as GT for LPIPS
-            if img_pred_pil.size != img_gt_pil.size:
-                img_pred_pil = img_pred_pil.resize(img_gt_pil.size, Image.BICUBIC)
- 
-            tensor_gt = transform(img_gt_pil).unsqueeze(0).to(device)
-            tensor_pred = transform(img_pred_pil).unsqueeze(0).to(device)
+    n_workers = min(cpu_count(), 16)
+    print(f"CPU 指標を {n_workers} スレッドで並列計算中...")
+    cpu_results = {}  # key -> (psnr, ssim, m_psnr, m_ssim)
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        futures = {executor.submit(_cpu_worker, item): item[0] for item in args_list}
+        for future in tqdm(as_completed(futures), total=len(futures), desc="CPU metrics"):
+            ret = future.result()
+            if ret is not None:
+                key, psnr, s, mp_val, ms = ret
+                cpu_results[key] = (psnr, s, mp_val, ms)
 
-            with torch.no_grad():
-                score_lpips = loss_fn(tensor_gt, tensor_pred).item()
+    valid_keys = [k for k in common_keys if k in cpu_results]
+    print(f"CPU 計算完了: {len(valid_keys)}/{len(common_keys)} 枚")
 
-            # --- Masked PSNR/SSIM計算 (OpenCV/Numpy使用) ---
-            # 画像を読み込み (BGR 0-255)
-            cv_gt = cv2.imread(path_gt)
-            cv_pred = cv2.imread(path_pred)
-            # マスクを読み込み (グレースケール)
-            cv_mask = cv2.imread(path_mask, cv2.IMREAD_GRAYSCALE)
+    # 4. GPU バッチ LPIPS 計算
+    BATCH = 256
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
+    ])
 
-            # --- 通常のPSNR/SSIM計算（画像全体） ---
-            score_psnr = calculate_psnr(cv_gt, cv_pred)
-            score_ssim = calculate_ssim(cv_gt, cv_pred)
+    lpips_scores = {}  # key -> float
+    print(f"GPU バッチ LPIPS 計算中 (batch={BATCH})...")
+    for i in tqdm(range(0, len(valid_keys), BATCH), desc="LPIPS batch"):
+        batch_keys = valid_keys[i : i + BATCH]
+        batch_gt, batch_pred = [], []
+        for key in batch_keys:
+            try:
+                gt_pil   = Image.open(gt_index[key]).convert('RGB')
+                pred_pil = Image.open(pred_index[key]).convert('RGB')
+                if pred_pil.size != gt_pil.size:
+                    pred_pil = pred_pil.resize(gt_pil.size, Image.BICUBIC)
+                batch_gt.append(transform(gt_pil))
+                batch_pred.append(transform(pred_pil))
+            except Exception:
+                batch_gt.append(None)
+                batch_pred.append(None)
 
-            # --- Masked PSNR/SSIM計算（マスク領域のみ） ---
-            score_masked_psnr, score_masked_ssim = calculate_masked_metrics(cv_gt, cv_pred, cv_mask)
+        # None を除いてテンソル化
+        valid_idx = [j for j, t in enumerate(batch_gt) if t is not None]
+        if not valid_idx:
+            continue
+        t_gt   = torch.stack([batch_gt[j]   for j in valid_idx]).to(device)
+        t_pred = torch.stack([batch_pred[j] for j in valid_idx]).to(device)
 
-            # NaN ガード（必要ならスキップまたは 0 代入）
-            if np.isnan(score_masked_psnr) or np.isnan(score_masked_ssim):
-                print(f"Warning: empty mask for {filename}, skipping masked metrics")
-                continue
+        with torch.no_grad():
+            scores = loss_fn(t_gt, t_pred)  # (N, 1, 1, 1)
+        scores = scores.squeeze().cpu()
+        if scores.dim() == 0:
+            scores = scores.unsqueeze(0)
+        for j, idx in enumerate(valid_idx):
+            lpips_scores[batch_keys[idx]] = float(scores[j])
 
-            # 結果を保存 [Filename, LPIPS, PSNR, Masked_PSNR, SSIM, Masked_SSIM]
-            results.append([filename, score_lpips, score_psnr, score_masked_psnr, score_ssim, score_masked_ssim])
-            
-            total_lpips += score_lpips
-            total_psnr += score_psnr
-            total_masked_psnr += score_masked_psnr
-            total_ssim += score_ssim
-            total_masked_ssim += score_masked_ssim
-            count += 1
+    # 5. 結果集計
+    results = []
+    total_lpips = total_psnr = total_masked_psnr = total_ssim = total_masked_ssim = 0.0
+    count = 0
 
-        except Exception as e:
-            print(f"Error processing {filename}: {e}")
+    for key in valid_keys:
+        if key not in lpips_scores:
+            continue
+        psnr, s, mp, ms = cpu_results[key]
+        lp = lpips_scores[key]
+        filename = os.path.basename(pred_index[key])
+        results.append([filename, lp, psnr, mp, s, ms])
+        total_lpips       += lp
+        total_psnr        += psnr
+        total_masked_psnr += mp
+        total_ssim        += s
+        total_masked_ssim += ms
+        count += 1
 
     # 4. 平均計算と出力
     if count > 0:
@@ -424,50 +476,52 @@ if __name__ == "__main__":
     
     # パス設定
     parser.add_argument('--gt_dir', type=str, 
-                        default="/home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt/test",
+                        default="/home/imoto/Kuzushiji_Restoration/data/full_padded/gt/test",
                         help='正解画像 (Ground Truth) のフォルダ')
     parser.add_argument('--pred_dir', type=str, 
-                        default="outputs/nafnet_gtmask_charbpercep",
+                        default="outputs/mprnet_gtmask_charbpercep",
                         help='修復画像 (Restored/Output) のフォルダ')
     parser.add_argument('--mask_dir', type=str, 
-                        default="/home/imoto/Kuzushiji_Restoration/data/hiragana_fulldataset_5stain/gt_mask/test",
+                        default="/home/imoto/Kuzushiji_Restoration/data/full_padded/gt_mask/test",
                         help='文字領域マスク (Mask) のフォルダ')
     parser.add_argument('--output_csv', type=str, 
-                        default="outputs/nafnet_gtmask_charbpercep/evaluation_nafnet_gtmask_charbpercep.csv",
+                        default="outputs/mprnet_gtmask_charbpercep/evaluation_mprnet_gtmask_charbpercep.csv",
                         help='出力CSVファイルパス')
     
     # wandb設定
     parser.add_argument('--use_wandb', action='store_true', help='wandbに結果を記録する')
     parser.add_argument('--wandb_project', type=str, default='Kuzushiji_Restoration', help='wandbプロジェクト名')
-    parser.add_argument('--wandb_name', type=str, default="eval_nafnet_gtmask_charbpercep", help='wandb run名 (未指定なら自動生成)')
+    parser.add_argument('--wandb_name', type=str, default="eval_mprnet_gtmask_charbpercep", help='wandb run名 (未指定なら自動生成)')
     parser.add_argument('--wandb_job_type', type=str, default='evaluation', help='wandbジョブタイプ')
     parser.add_argument('--wandb_tags', type=str, nargs='+', default=None, help='wandbタグ')
 
     args = parser.parse_args()
 
-    if args.use_wandb:
-        import wandb
-        wandb_config = vars(args).copy()
-        wandb.init(
-            project=args.wandb_project, 
-            name=args.wandb_name, 
-            job_type=args.wandb_job_type, 
-            tags=args.wandb_tags,
-            config=wandb_config
-        )
-
-    if os.path.exists(args.gt_dir) and os.path.exists(args.pred_dir) and os.path.exists(args.mask_dir):
-        # 出力ディレクトリの作成
-        os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
-        
-        calculate_all_metrics(args.gt_dir, args.pred_dir, args.mask_dir, args.output_csv, args=args, model=None)
-    else:
+    # ディレクトリ確認を先に行う（wandb.init より前）
+    if not (os.path.exists(args.gt_dir) and os.path.exists(args.pred_dir) and os.path.exists(args.mask_dir)):
         print("エラー: 指定されたディレクトリが見つかりません。パスを確認してください。")
-        if not os.path.exists(args.gt_dir): print(f"Missing: {args.gt_dir}")
+        if not os.path.exists(args.gt_dir):   print(f"Missing: {args.gt_dir}")
         if not os.path.exists(args.pred_dir): print(f"Missing: {args.pred_dir}")
         if not os.path.exists(args.mask_dir): print(f"Missing: {args.mask_dir}")
         import sys; sys.exit(1)
-    
+
+    # 出力ディレクトリの作成
+    os.makedirs(os.path.dirname(args.output_csv), exist_ok=True)
+
+    # wandb初期化（ディレクトリ確認後）
+    if args.use_wandb:
+        import wandb
+        wandb.init(
+            project=args.wandb_project,
+            name=args.wandb_name,
+            job_type=args.wandb_job_type,
+            tags=args.wandb_tags,
+            config=vars(args).copy(),
+            settings=wandb.Settings(start_method="thread"),
+        )
+
+    calculate_all_metrics(args.gt_dir, args.pred_dir, args.mask_dir, args.output_csv, args=args, model=None, use_gpu=False)
+
     if args.use_wandb:
         import wandb
         wandb.finish()
