@@ -1,13 +1,3 @@
-# 🎨 Kuzushiji Restoration: Deep Learning-Based Historical Document Restoration
-
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
-> **Research Project**: A comprehensive benchmark of mask-guided modern architectures for the restoration of physically damaged Kuzushiji (historical Japanese cursive) documents.
-
----
-
 # 🎨 Kuzushiji Restoration: Mask-Guided Two-Stage Framework
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
@@ -21,66 +11,74 @@
 ## 📖 Overview
 ![Results Overview](images/results2.png)
 
-Historical Japanese documents (*Kuzushiji*) are vital for cultural research but suffer from significant physical degradation such as stains, scratches, and missing parts. These degradations impede both manual transcription and automated Optical Character Recognition (OCR).
+Historical Japanese documents (*Kuzushiji*) are vital for cultural research but suffer from physical degradation such as stains, missing fragments, and ink bleeding. This project proposes a **two-stage framework** to selectively restore these documents:
 
-This project proposes a robust **two-stage framework**:
-1. **Stage 1: Damage Localization**: Employs an optimized **UNet++** to generate a **soft damage mask** ($\hat{M} \in [0, 1]$), representing pixel-wise degradation probability.
-2. **Stage 2: Selective Restoration**: Uses the soft mask as guidance (**4-channel input**: RGB + Mask) across four state-of-the-art architectures (**NAFNet, SwinIR, Restormer, MPRNet**) to selectively restore character strokes.
-
-**Key Finding**: Among the evaluated models, **NAFNet** achieves the best balance between efficiency and quality. It provides top-tier perceptual fidelity (LPIPS) and OCR accuracy while maintaining the lowest computational cost.
+1.  **Stage 1: Damage Localization**: Employs an optimized **UNet++** to generate a **soft damage mask** ($\hat{M} \in [0, 1]$), representing pixel-wise degradation probability.
+2.  **Stage 2: Selective Restoration**: Uses the predicted soft mask as guidance (**4-channel input**: RGB + Mask) across four modern architectures (**NAFNet, SwinIR, Restormer, MPRNet**) to reconstruct character strokes.
 
 ---
 
-## 🏆 Results Summary (Stage 2 with Predicted Masks)
+## 🏆 Results & Benchmarks
 
-Performance evaluated on an independent test set across 5 damage types. **Bold** indicates the best performance.
+### 1. Restoration and OCR Performance
+The following table compares performance under three mask conditions: **NoMask** (no guidance), **PredMask** (our proposed Stage 1 output), and **GTMask** (theoretical upper bound).
 
-| Model | Params (M)↓ | Latency (ms)↓ | mPSNR↑ | mSSIM↑ | LPIPS↓ | OCR Acc.↑ |
-|-------|-----------:|----------:|------:|------:|---------:|-----------:|
-| **MPRNet** | 20.13 | 12.5 | **33.50** | 0.9627 | 0.0215 | **97.97%** |
-| **SwinIR** | 11.90 | 28.2 | **33.50** | **0.9632** | 0.0229 | 97.96% |
-| **Restormer** | 26.10 | 18.4 | 31.47 | 0.9532 | 0.0289 | 97.92% |
-| **NAFNet (Ours)** | **9.25** | **8.1** | 33.21 | 0.9609 | **0.0205** | **97.97%** |
+| Model | Condition | mPSNR↑ | mSSIM↑ | LPIPS↓ | OCR Acc.↑ |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| **MPRNet** | NoMask | 33.32 | 0.9613 | 0.0222 | 97.86% |
+| | **PredMask (Ours)** | **33.50** | 0.9627 | 0.0215 | **97.97%** |
+| | GTMask (Upper Bound)| 35.92 | 0.9769 | 0.0158 | 98.38% |
+| **NAFNet** | NoMask | 33.49 | 0.9622 | 0.0221 | 97.91% |
+| | **PredMask (Ours)** | 33.21 | 0.9609 | **0.0205** | **97.97%** |
+| | GTMask (Upper Bound)| 33.89 | 0.9705 | 0.0189 | 98.39% |
+| **SwinIR** | NoMask | 33.44 | 0.9618 | 0.0227 | 97.83% |
+| | **PredMask (Ours)** | **33.50** | **0.9632** | 0.0229 | 97.96% |
+| | GTMask (Upper Bound)| 35.94 | 0.9780 | 0.0174 | 98.42% |
+| **Restormer**| NoMask | 30.64 | 0.9543 | 0.0293 | 97.91% |
+| | **PredMask (Ours)** | 31.47 | 0.9532 | 0.0289 | 97.92% |
+| | GTMask (Upper Bound)| 33.17 | 0.9692 | 0.0229 | 98.36% |
 
-> **Conclusion**: NAFNet achieves a $97.97\%$ OCR accuracy (matching the heavy MPRNet) and the best perceptual quality (LPIPS: 0.0205) with only **9.25M parameters**, making it the most practical choice for large-scale digitization.
+### 2. Computational Efficiency
+Measured with $128 \times 128 \times 4$ input on an NVIDIA RTX A6000.
+
+| Model | Params (M)↓ | FLOPs (G)↓ | Latency (ms)↓ |
+| :--- | :---: | :---: | :---: |
+| MPRNet | 20.13 | 141.6 | 12.5 |
+| SwinIR | 11.90 | 49.3 | 28.2 |
+| Restormer | 26.10 | 16.1 | 18.4 |
+| **NAFNet (Ours)** | **9.25** | **14.8** | **8.1** |
+
+**Conclusion**: **NAFNet** is the most practical choice. It matches the OCR accuracy of the much heavier MPRNet and achieves the best perceptual fidelity (LPIPS) while being the fastest and most lightweight model.
 
 ---
 
 ## 🔬 Methodology
 
 ### Soft Mask Guidance
-Unlike binary masking, our framework utilizes **soft masks** (probability maps). This allows Stage 2 models to account for the uncertainty in damage boundaries (e.g., blurred stains or faded ink), leading to more natural transitions between restored and original regions.
+To handle the ambiguity of historical degradations (e.g., blurred stains or fading ink), we use **Soft Masks ($\hat{M} \in [0, 1]$)** instead of hard binary masks. This enables Stage 2 models to account for the intensity of degradation, leading to smoother and more natural restorations.
 
-### Optimization Strategy: CharbPercep
-Through an extensive ablation study, we identified the combination of **Charbonnier loss and Perceptual loss (CharbPercep)** as the optimal objective. 
-- **Why not TV Loss?**: While Total Variation (TV) loss reduces noise, it tends to over-smooth the delicate, thin cursive strokes (*連綿*) of Kuzushiji.
-- **Why CharbPercep?**: It effectively balances pixel-wise reconstruction with the preservation of character topology and perceptual fidelity.
+### Optimization: CharbPercep
+We adopted a hybrid loss function combining **Charbonnier Loss** and **Perceptual Loss**. Our ablation study showed that traditional Total Variation (TV) loss tends to over-smooth the thin, delicate cursive connections (*renmen*) between characters, whereas our configuration preserves the structural integrity of the brushwork.
 
-### Ground-Truth Mask Generation
-To ensure reproducibility, ground-truth masks for training were generated by applying **Otsu's binarization** to clean historical images, isolating character strokes as a reliable baseline for localization.
+### Ground-Truth Labels
+For objective evaluation and training, Ground-Truth masks were generated by applying **Otsu's binarization** to clean historical images, isolating character strokes from the paper background without manual thresholding bias.
 
 ---
 
 ## 📁 Project Structure
-
 ```text
 Kuzushiji_Restoration/
-├── configs/                           # Training Configurations (YAML)
-├── models/                            # Model implementations (BasicSR-based)
-│   ├── nafnet/                        # Selected NAFNet architecture
-│   ├── swinir/
-│   ├── restormer/
-│   └── mprnet/
+├── configs/               # Training YAML files
+├── models/                # Model implementations (NAFNet, SwinIR, etc.)
 ├── scripts/
-│   ├── data_preprocessing/            # Padding, augmentation, Otsu mask generation
-│   ├── evaluation/                    # PSNR, SSIM, LPIPS, OCR evaluation scripts
-│   └── restore.py              # Inference scripts for each architecture
-└── data/                              # Dataset Directory
+│   ├── data_preprocessing/# Otsu mask generation, padding
+│   ├── evaluation/        # Metrics (PSNR, SSIM, LPIPS, OCR)
+│   └── restore_with_*.py  # Inference scripts
+└── data/
     └── hiragana_fulldataset_5stain/
-        ├── gt/                        # Ground Truth Images
-        ├── lq/                        # Low Quality (Degraded) Images
-        ├── gt_mask/                   # Ideal Masks (Otsu-based)
-        └── pred_mask/                 # Soft masks generated by Stage 1 UNet++
+        ├── gt/            # Ground Truth Images
+        ├── lq/            # Degraded Images
+        └── pred_mask/     # Stage 1 Predicted Soft Masks
 ```
 
 ---
