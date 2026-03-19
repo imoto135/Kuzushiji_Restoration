@@ -8,55 +8,56 @@
 
 ---
 
-## 📖 Overview
-![Results Overview](images/results2.png)
+# 🎨 Kuzushiji Restoration: Mask-Guided Two-Stage Framework
 
-Historical Japanese documents (Kuzushiji) are vital for cultural research but suffer from significant physical degradation such as stains, scratches, and missing parts. These degradations impede both manual transcription and automated Optical Character Recognition (OCR).
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-This project proposes a robust two-stage framework:
-1. **Damage Localization**: Employs an optimized UNet++ architecture to perform pixel-wise damage segmentation.
-2. **Selective Restoration**: Uses the generated masks as guidance (4-channel input: RGB + Mask) across four state-of-the-art architectures (NAFNet, SwinIR, Restormer, MPRNet) to selectively restore the character strokes.
-
-**Key Finding**: Among the evaluated models, **NAFNet** achieves the best performance in terms of perceptual quality (LPIPS) and downstream OCR accuracy, making it the most effective architecture for preserving the delicate structural integrity of cursive strokes.
+> **Research Project**: A comprehensive benchmark of mask-guided modern architectures for the restoration of physically damaged *Kuzushiji* (historical Japanese cursive) documents.
 
 ---
 
-## 🏆 Results Summary
+## 📖 Overview
+![Results Overview](images/results2.png)
 
-Performance evaluated on an independent test set using Stage 1 Predicted Masks across 5 different damage types.
+Historical Japanese documents (*Kuzushiji*) are vital for cultural research but suffer from significant physical degradation such as stains, scratches, and missing parts. These degradations impede both manual transcription and automated Optical Character Recognition (OCR).
 
-| Model | Params (M) | FLOPs (G) | PSNR | SSIM | LPIPS ↓ | OCR Acc. ↑ |
+This project proposes a robust **two-stage framework**:
+1. **Stage 1: Damage Localization**: Employs an optimized **UNet++** to generate a **soft damage mask** ($\hat{M} \in [0, 1]$), representing pixel-wise degradation probability.
+2. **Stage 2: Selective Restoration**: Uses the soft mask as guidance (**4-channel input**: RGB + Mask) across four state-of-the-art architectures (**NAFNet, SwinIR, Restormer, MPRNet**) to selectively restore character strokes.
+
+**Key Finding**: Among the evaluated models, **NAFNet** achieves the best balance between efficiency and quality. It provides top-tier perceptual fidelity (LPIPS) and OCR accuracy while maintaining the lowest computational cost.
+
+---
+
+## 🏆 Results Summary (Stage 2 with Predicted Masks)
+
+Performance evaluated on an independent test set across 5 damage types. **Bold** indicates the best performance.
+
+| Model | Params (M)↓ | Latency (ms)↓ | mPSNR↑ | mSSIM↑ | LPIPS↓ | OCR Acc.↑ |
 |-------|-----------:|----------:|------:|------:|---------:|-----------:|
-| **MPRNet**    | 20.13 | 141.6 | 36.98 | 0.9668 | 0.0215 | 97.97% |
-| **SwinIR**    | 11.90 | 49.3  | 36.92 | **0.9671** | 0.0229 | 97.96% |
-| **Restormer** | 26.10 | 16.1  | 34.40 | 0.9592 | 0.0289 | 97.92% |
-| **NAFNet**    | **9.25** | **14.8**  | 36.69 | 0.9650 | **0.0205** | **97.97%** |
+| **MPRNet** | 20.13 | 12.5 | **33.50** | 0.9627 | 0.0215 | **97.97%** |
+| **SwinIR** | 11.90 | 28.2 | **33.50** | **0.9632** | 0.0229 | 97.96% |
+| **Restormer** | 26.10 | 18.4 | 31.47 | 0.9532 | 0.0289 | 97.92% |
+| **NAFNet (Ours)** | **9.25** | **8.1** | 33.21 | 0.9609 | **0.0205** | **97.97%** |
 
-> **Conclusion**: NAFNet provides the best trade-off. It achieves top-tier OCR accuracy (matching MPRNet) and the best perceptual quality (LPIPS: 0.0205) while requiring the fewest parameters and lowest computational cost.
+> **Conclusion**: NAFNet achieves a $97.97\%$ OCR accuracy (matching the heavy MPRNet) and the best perceptual quality (LPIPS: 0.0205) with only **9.25M parameters**, making it the most practical choice for large-scale digitization.
 
 ---
 
 ## 🔬 Methodology
 
-### Two-Stage Pipeline
-![Chart Overview](images/chart_overview.png)
+### Soft Mask Guidance
+Unlike binary masking, our framework utilizes **soft masks** (probability maps). This allows Stage 2 models to account for the uncertainty in damage boundaries (e.g., blurred stains or faded ink), leading to more natural transitions between restored and original regions.
 
-#### Stage 1: Character Segmentation
-- **Architecture**: U-Net++ with SE-ResNeXt-50 encoder.
-- **Optimization**: Trained with a hybrid loss function ($0.5\, \text{Dice} + 0.5\, \text{BCE}$) and deep supervision.
-- **Goal**: Generate highly precise representations of exactly where the document is damaged.
+### Optimization Strategy: CharbPercep
+Through an extensive ablation study, we identified the combination of **Charbonnier loss and Perceptual loss (CharbPercep)** as the optimal objective. 
+- **Why not TV Loss?**: While Total Variation (TV) loss reduces noise, it tends to over-smooth the delicate, thin cursive strokes (*連綿*) of Kuzushiji.
+- **Why CharbPercep?**: It effectively balances pixel-wise reconstruction with the preservation of character topology and perceptual fidelity.
 
-#### Stage 2: Image Restoration
-- **Modified Architectures**: Adapted to accept a 4-channel input (RGB + Mask).
-- **Mask Guidance**: Forces the network to focus computational resources on damaged regions while preserving original strokes in clean areas.
-
-### Evaluated Degradation Types
-Based on realistic archival damage patterns:
-1. **Ghosting**: Ink bleeding from the reverse side.
-2. **Missing**: Missing image fragments simulating physical tearing.
-3. **Abrasion**: Faded regions from surface wear.
-4. **Stain**: Dark, opaque spots overlapping characters.
-5. **Transparent Stain**: Semi-transparent, water-damage-like regions.
+### Ground-Truth Mask Generation
+To ensure reproducibility, ground-truth masks for training were generated by applying **Otsu's binarization** to clean historical images, isolating character strokes as a reliable baseline for localization.
 
 ---
 
@@ -73,14 +74,13 @@ Kuzushiji_Restoration/
 ├── scripts/
 │   ├── data_preprocessing/            # Padding, augmentation, Otsu mask generation
 │   ├── evaluation/                    # PSNR, SSIM, LPIPS, OCR evaluation scripts
-│   └── restore_with_*.py              # Inference scripts for each architecture
-├── environments/                      # Conda environments
+│   └── restore.py              # Inference scripts for each architecture
 └── data/                              # Dataset Directory
-    └── full_padded/
+    └── hiragana_fulldataset_5stain/
         ├── gt/                        # Ground Truth Images
         ├── lq/                        # Low Quality (Degraded) Images
-        ├── gt_mask/                   # Ideal Masks
-        └── pred_mask/                 # Masks generated by Stage 1 UNet++
+        ├── gt_mask/                   # Ideal Masks (Otsu-based)
+        └── pred_mask/                 # Soft masks generated by Stage 1 UNet++
 ```
 
 ---
