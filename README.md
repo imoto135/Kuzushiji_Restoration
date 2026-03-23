@@ -101,10 +101,16 @@ conda activate nafnet2
 
 Ensure your dataset is placed under `data/full_padded/` following the directory structure above.
 
+The `scripts/data_preprocessing/` directory contains tools to prepare the dataset:
+- `01_pad_images.py`: Resizes images and pads borders using the detected background color.
+- `02_generate_otsu_masks.py`: Generates ground truth binary masks (GT Masks) for text strokes.
+- `03_add_stain_5types.py`: Applies simulated physical degradations (Missing, Stain, Scratch, Ghosting, Transparent Stain) to create low-quality (LQ) input images.
+
 ```bash
-# Example: Generate padding and GT (Otsu) masks
+# Example: Generate padding, GT masks, and degraded LQ images
 python scripts/data_preprocessing/01_pad_images.py
 python scripts/data_preprocessing/02_generate_otsu_masks.py
+python scripts/data_preprocessing/03_add_stain_5types.py
 ```
 
 ### 3. Inference using NAFNet

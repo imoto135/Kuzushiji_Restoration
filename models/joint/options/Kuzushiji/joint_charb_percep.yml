@@ -1,0 +1,43 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Joint UNet++ + NAFNet — End-to-End Training Config
+# CharbonnierLoss + PerceptualLoss (restore) + Dice+BCE (segmentation)
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Joint_UNetPP_NAFNet_CharbPercep
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  # Relative to the project root: /home/imoto/Kuzushiji_Restoration
+  base: ../../data/hiragana_fulldataset_5stain
+  img_size: 128
+  batch_size: 16
+  num_workers: 8
+
+# ── Pretrained weights ────────────────────────────────────────────────────────
+pretrain:
+  # Stage 1: best UNet++ model from single-stage training
+  unetpp: ../unet++/experiments/unet++_full_characters/best_model.pth
+  # Stage 2: best NAFNet PredMask model (200k iters, Charb+Percep)
+  nafnet: ../nafnet/experiments/Full_NAFNet_Kuzushiji_Mask_CharbPercep/models/net_g_200000.pth
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output:
+  dir: experiments/joint_unetpp_nafnet_charb_percep
+
+# ── Training ──────────────────────────────────────────────────────────────────
+train:
+  epochs:      100
+  lr:          !!float 1e-4      # fine-tune LR (lower than from-scratch)
+  weight_decay: !!float 1e-5
+
+  # Loss weights
+  lambda_seg:    0.1   # weight of L_seg (segmentation) relative to L_restore
+  lambda_percep: 0.1   # weight of perceptual loss within L_restore
+  use_perceptual: true
+
+  # Scheduling & stopping
+  early_stop_patience: 15
+  save_every: 10       # save checkpoint every N epochs (0 = disable)
+
+# ── WandB ─────────────────────────────────────────────────────────────────────
+wandb_project: Kuzushiji_Restoration

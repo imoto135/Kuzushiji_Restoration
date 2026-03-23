@@ -1,0 +1,68 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Joint UNet++ + NAFNet — Adaptive Soft Mask Training Config
+# Improvements over joint_charb_percep.yml:
+#   - Learnable temperature τ (mask sharpness adapts during training)
+#   - λ_seg linear decay (lambda_seg_start → lambda_seg_end)
+#   - Progressive unfreezing: Phase1 (NAFNet warmup) → Phase2 → Phase3
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: Joint_UNetPP_NAFNet_AdaptiveMask
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  base: ../../data/full_padded
+  img_size: 128
+  batch_size: 16
+  num_workers: 8
+
+# ── Pretrained weights ────────────────────────────────────────────────────────
+pretrain:
+  # Stage 1: best UNet++ model from single-stage training
+  unetpp: ../unet++/experiments/unet++_full_characters/best_model.pth
+  # Stage 2: best NAFNet PredMask model (200k iters, Charb+Percep)
+  nafnet: ../nafnet/experiments/Full_NAFNet_Kuzushiji_Mask_CharbPercep/models/net_g_200000.pth
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output:
+  dir: experiments/joint_adaptive_mask
+
+# ── Model ─────────────────────────────────────────────────────────────────────
+model:
+  learnable_temp: true    # learn mask sharpness temperature τ
+  temp_init: 1.0          # initial τ value (1.0 = same as sigmoid)
+  temp_min: 0.1           # minimum τ clamp (prevents near-zero division)
+
+# ── Progressive Phase Schedule ────────────────────────────────────────────────
+# Total epochs = phase1_epochs + phase2_epochs + phase3_epochs
+# Set phase1_epochs=0 to skip the NAFNet-only warmup (not recommended)
+phases:
+  phase1_epochs: 20   # Phase 1: UNet++ frozen, NAFNet warms up
+  phase2_epochs: 30   # Phase 2: UNet++ unfrozen at low lr (lr_unetpp_phase2)
+  # Phase 3 = remaining epochs (total = 100)
+
+# ── Training ──────────────────────────────────────────────────────────────────
+train:
+  epochs: 100
+
+  # Learning rates
+  lr:             !!float 1e-4    # NAFNet (and τ) lr — used throughout
+  lr_unetpp:      !!float 1e-4    # UNet++ lr in Phase 3 (full end-to-end)
+  lr_unetpp_phase2: !!float 1e-5  # UNet++ lr in Phase 2 (soft unfreezing)
+  weight_decay:   !!float 1e-5
+
+  # λ_seg decay: linearly from start → end over all epochs
+  # High start value guides UNet++ to produce accurate masks early on.
+  # Low end value lets NAFNet dominate as training converges.
+  lambda_seg_start: 0.3
+  lambda_seg_end:   0.05
+
+  # Perceptual loss
+  lambda_percep: 0.1
+  use_perceptual: true
+
+  # Scheduling & stopping
+  early_stop_patience: 15
+  save_every: 10       # save checkpoint every N epochs (0 = disable)
+
+# ── WandB ─────────────────────────────────────────────────────────────────────
+wandb_project: Kuzushiji_Restoration
