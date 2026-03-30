@@ -117,7 +117,11 @@ class JointRestorationNet(nn.Module):
             # BasicSR saves weights under a 'params' key
             if "params" in state:
                 state = state["params"]
-            self.nafnet.load_state_dict(state, strict=True)
+            result = self.nafnet.load_state_dict(state, strict=False)
+            if result.missing_keys:
+                print(f"[JointModel] NAFNet missing keys ({len(result.missing_keys)}): {result.missing_keys[:3]}...")
+            if result.unexpected_keys:
+                print(f"[JointModel] NAFNet unexpected keys ({len(result.unexpected_keys)}): ignored")
             print(f"[JointModel] Loaded NAFNet weights from {nafnet_pretrain}")
 
         # ---- Optional freezing ----

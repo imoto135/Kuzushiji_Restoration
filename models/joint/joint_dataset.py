@@ -14,6 +14,7 @@ All images are returned as float32 tensors in [0, 1].
 
 import re
 from pathlib import Path
+from typing import Optional, Union
 
 import numpy as np
 import torch
@@ -39,7 +40,6 @@ def get_transforms(img_size: int = 128, mode: str = "train") -> A.Compose:
         return A.Compose(
             [
                 A.Resize(img_size, img_size),
-                A.HorizontalFlip(p=0.1),
                 A.Rotate(limit=10, p=0.3),
             ],
             additional_targets={"gt": "image", "mask": "mask"},
@@ -71,10 +71,10 @@ class KuzushijiJointDataset(Dataset):
 
     def __init__(
         self,
-        lq_dir: str | Path,
-        gt_dir: str | Path,
-        mask_dir: str | Path,
-        transform: A.Compose | None = None,
+        lq_dir: Union[str, Path],
+        gt_dir: Union[str, Path],
+        mask_dir: Union[str, Path],
+        transform: Optional[A.Compose] = None,
         img_size: int = 128,
         mode: str = "train",
     ):

@@ -149,7 +149,7 @@ def train_one_epoch(
     totals = dict(total=0., restore=0., charb=0., percep=0., seg=0., temp=0.)
     count  = 0
 
-    for batch in loader:
+    for batch in tqdm(loader, leave=False, desc="Train"):
         lq      = batch["lq"].to(device)
         gt      = batch["gt"].to(device)
         gt_mask = batch["gt_mask"].to(device)
@@ -170,12 +170,15 @@ def train_one_epoch(
             l_restore = l_charb + lambda_percep * l_percep
 
             # ── Segmentation losses (UNet++ guidance) ───────────────────────
-            # mask is sigmoid output; use soft BCE + Dice
+            # F.binary_cross_entropy is unsafe in autocast; compute in float32
             l_dice = dice_loss(mask, gt_mask)
-            l_bce  = F.binary_cross_entropy(mask, gt_mask)
-            l_seg  = 0.5 * l_dice + 0.5 * l_bce
 
-            l_total = l_restore + lambda_seg * l_seg
+        # BCE must be computed outside autocast (unsafe with float16)
+        with torch.cuda.amp.autocast(enabled=False):
+            l_bce  = F.binary_cross_entropy(mask.float().clamp(0.0, 1.0), gt_mask.float().clamp(0.0, 1.0))
+
+        l_seg   = 0.5 * l_dice + 0.5 * l_bce
+        l_total = l_restore + lambda_seg * l_seg
 
         scaler.scale(l_total).backward()
         scaler.unscale_(optimizer)
@@ -196,12 +199,12 @@ def train_one_epoch(
 
 
 @torch.no_grad()
-def validate(model, loader, charb_loss, dice_loss, lambda_seg, device) -> dict:
+def validate(model, loader, charb_loss, dice_loss, lambda_seg, lpips_fn, device) -> dict:
     model.eval()
-    totals = dict(psnr=0., iou=0., charb=0., seg=0., temp=0.)
+    totals = dict(psnr=0., lpips=0., iou=0., charb=0., seg=0., temp=0.)
     count  = 0
 
-    for batch in loader:
+    for batch in tqdm(loader, leave=False, desc="Val"):
         lq      = batch["lq"].to(device)
         gt      = batch["gt"].to(device)
         gt_mask = batch["gt_mask"].to(device)
@@ -210,10 +213,14 @@ def validate(model, loader, charb_loss, dice_loss, lambda_seg, device) -> dict:
             restored, mask, temp = model(lq)
 
         totals["psnr"] += psnr(restored, gt) * lq.size(0)
+        with torch.no_grad():
+            l_lpips = lpips_fn(restored * 2.0 - 1.0, gt * 2.0 - 1.0)
+            totals["lpips"] += l_lpips.sum().item()
         totals["iou"]  += iou_score(mask, gt_mask) * lq.size(0)
         totals["charb"]+= charb_loss(restored, gt).item() * lq.size(0)
         l_dice = dice_loss(mask, gt_mask)
-        l_bce  = F.binary_cross_entropy(mask, gt_mask)
+        with torch.cuda.amp.autocast(enabled=False):
+            l_bce  = F.binary_cross_entropy(mask.float().clamp(0.0, 1.0), gt_mask.float().clamp(0.0, 1.0))
         totals["seg"]  += (0.5*l_dice + 0.5*l_bce).item() * lq.size(0)
         totals["temp"] += temp * lq.size(0)
         count          += lq.size(0)
@@ -421,12 +428,15 @@ def main():
     )
     scaler = torch.cuda.amp.GradScaler()
 
+    import lpips
+    lpips_fn = lpips.LPIPS(net='alex').to(device)
+
     # ── Apply Phase 1 settings at start ───────────────────────────────────
     current_phase  = 0  # sentinel — triggers apply_phase_settings on first epoch
     save_every     = cfg["train"].get("save_every", 10)
-    es_patience    = cfg["train"].get("early_stop_patience", 15)
+    es_patience    = cfg["train"].get("early_stop_patience", 5)
     es_counter     = 0
-    best_psnr      = 0.0
+    best_lpips     = 100.0
 
     # ── Training loop ──────────────────────────────────────────────────────
     for epoch in range(1, epochs + 1):
@@ -457,7 +467,7 @@ def main():
         )
         scheduler.step()
 
-        val_logs = validate(model, val_loader, charb_loss, dice_loss_fn, lambda_seg, device)
+        val_logs = validate(model, val_loader, charb_loss, dice_loss_fn, lambda_seg, lpips_fn, device)
 
         lr_nafnet_now = optimizer.param_groups[0]["lr"]
         lr_unetpp_now = optimizer.param_groups[1]["lr"]
@@ -466,7 +476,7 @@ def main():
             f"restore={train_logs['restore']:.4f} "
             f"seg={train_logs['seg']:.4f} "
             f"τ={train_logs['temp']:.4f} | "
-            f"Val PSNR={val_logs['psnr']:.2f} dB  IoU={val_logs['iou']:.4f} "
+            f"Val PSNR={val_logs['psnr']:.2f} dB LPIPS={val_logs['lpips']:.4f} IoU={val_logs['iou']:.4f} "
             f"τ={val_logs['temp']:.4f} | "
             f"lr_nafnet={lr_nafnet_now:.2e} lr_unetpp={lr_unetpp_now:.2e}"
         )
@@ -483,6 +493,7 @@ def main():
                 "train/loss_seg":        train_logs["seg"],
                 "train/temperature":     train_logs["temp"],
                 "val/psnr":              val_logs["psnr"],
+                "val/lpips":             val_logs["lpips"],
                 "val/iou":               val_logs["iou"],
                 "val/charb":             val_logs["charb"],
                 "val/seg":               val_logs["seg"],
@@ -499,35 +510,40 @@ def main():
                 "model":       model.state_dict(),
                 "optimizer":   optimizer.state_dict(),
                 "scheduler":   scheduler.state_dict(),
-                "best_psnr":   best_psnr,
+                "best_lpips":  best_lpips,
                 "phase":       current_phase,
             }, ckpt)
             logger.info(f"Checkpoint saved: {ckpt}")
 
         # ── Best model ─────────────────────────────────────────────────────
-        if val_logs["psnr"] > best_psnr:
-            best_psnr  = val_logs["psnr"]
+        if val_logs["lpips"] < best_lpips:
+            best_lpips = val_logs["lpips"]
             es_counter = 0
             save_path  = out_dir / "best_model.pth"
             torch.save({
-                "epoch":     epoch,
-                "model":     model.state_dict(),
-                "best_psnr": best_psnr,
-                "phase":     current_phase,
+                "epoch":      epoch,
+                "model":      model.state_dict(),
+                "best_lpips": best_lpips,
+                "phase":      current_phase,
             }, save_path)
-            logger.info(f"★ New best PSNR={best_psnr:.2f} dB → saved to {save_path}")
+            logger.info(f"★ New best LPIPS={best_lpips:.4f} → saved to {save_path}")
             if wandb_run:
                 import wandb
-                wandb.run.summary["best_psnr"]  = best_psnr
+                wandb.run.summary["best_lpips"] = best_lpips
                 wandb.run.summary["best_epoch"] = epoch
         else:
             es_counter += 1
             logger.info(f"No improvement. ES counter: {es_counter}/{es_patience}")
+            # Phase 1やPhase 2の途中で学習が終わらないよう、Early StoppingはPhase 3でのみ有効にするか、
+            # もしくは Phase更新時にカウンタをリセットすべきですが、今回は最新のPhaseまで回すことを保証します
             if es_counter >= es_patience:
-                logger.info(f"Early stopping at epoch {epoch}.")
-                break
+                if current_phase < 3:
+                    logger.info(f"ES threshold reached, but ignored because we are still in Phase {current_phase}.")
+                else:
+                    logger.info(f"Early stopping at epoch {epoch}.")
+                    break
 
-    logger.info(f"Training complete. Best Val PSNR: {best_psnr:.2f} dB")
+    logger.info(f"Training complete. Best Val LPIPS: {best_lpips:.4f}")
     if wandb_run:
         import wandb
         wandb.finish()

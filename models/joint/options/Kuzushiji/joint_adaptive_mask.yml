@@ -12,8 +12,8 @@ name: Joint_UNetPP_NAFNet_AdaptiveMask
 data:
   base: ../../data/full_padded
   img_size: 128
-  batch_size: 16
-  num_workers: 8
+  batch_size: 192   # A6000 48GB: Memory maximized (approx 42-45GB)
+  num_workers: 24
 
 # ── Pretrained weights ────────────────────────────────────────────────────────
 pretrain:
@@ -61,8 +61,8 @@ train:
   use_perceptual: true
 
   # Scheduling & stopping
-  early_stop_patience: 15
+  early_stop_patience: 5
   save_every: 10       # save checkpoint every N epochs (0 = disable)
 
 # ── WandB ─────────────────────────────────────────────────────────────────────
-wandb_project: Kuzushiji_Restoration
+wandb_project: Kuzushiji_Restoration_Joint
