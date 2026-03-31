@@ -123,7 +123,8 @@ def calculate_psnr(pred, gt):
 def main():
     torch.backends.cudnn.benchmark = True
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--total_iters", type=int, default=200000)
+    parser.add_argument("--val_freq", type=int, default=5000)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--device_id", type=int, default=1, help="GPU ID to use")
     parser.add_argument("--exp_name", type=str, default="MambaIR_Stage2_v2")
@@ -144,85 +145,104 @@ def main():
 
     print(f"Train samples: {len(train_ds)}, Val samples: {len(val_ds)}")
 
-    # Initialize MambaIR
+    # Initialize MambaIR (Lighter configuration for fair comparison and speed)
     model = MambaIR(upscale=1, in_chans=4, out_chans=3, img_size=128, 
-                    embed_dim=96, depths=(6, 6, 6, 6), d_state=16).to(device)
+                    embed_dim=64, depths=(4, 4, 4, 4), d_state=16).to(device)
 
     # NAFNet setup: AdamW 2e-4 for stability
     optimizer = optim.AdamW(model.parameters(), lr=2e-4, betas=(0.9, 0.9), weight_decay=0.0)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-7)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.total_iters, eta_min=1e-7)
 
     criterion_charb = CharbonnierLoss(eps=1e-6).to(device)
     criterion_percep = lpips.LPIPS(net="vgg").to(device)
     for p in criterion_percep.parameters():
         p.requires_grad = False
 
-    scaler = torch.cuda.amp.GradScaler()
+    scaler = torch.amp.GradScaler('cuda')
     best_psnr = 0.0
     save_dir = Path("experiments") / args.exp_name
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    for epoch in range(1, args.epochs + 1):
+    current_iter = 0
+    train_iter = iter(train_loader)
+    
+    pbar = tqdm(total=args.total_iters, desc="Training")
+    train_loss = 0.0
+
+    while current_iter < args.total_iters:
         model.train()
-        train_loss = 0.0
+        try:
+            batch = next(train_iter)
+        except StopIteration:
+            train_iter = iter(train_loader)
+            batch = next(train_iter)
+            
+        current_iter += 1
         
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs} [Train]")
-        for batch in pbar:
-            inputs = batch["input"].to(device)
-            gts = batch["gt"].to(device)
+        inputs = batch["input"].to(device)
+        gts = batch["gt"].to(device)
 
-            optimizer.zero_grad()
-            with torch.cuda.amp.autocast():
-                preds = model(inputs)
-                
-                loss_charb = criterion_charb(preds, gts)
-                # LPIPS expects input in range [-1, 1], our data is [0, 1]
-                loss_percep = criterion_percep(preds * 2 - 1, gts * 2 - 1).mean()
-                
-                # NAFNet setting: Charb: 1.0, Percep: 0.1
-                loss = loss_charb + 0.1 * loss_percep
+        optimizer.zero_grad()
+        
+        # Use bfloat16 strictly to trigger optimized Mamba hardware kernels
+        with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+            preds = model(inputs)
+            
+            loss_charb = criterion_charb(preds, gts)
+            # LPIPS expects input in range [-1, 1], our data is [0, 1]
+            loss_percep = criterion_percep(preds * 2 - 1, gts * 2 - 1).mean()
+            
+            # NAFNet setting: Charb: 1.0, Percep: 0.1
+            loss = loss_charb + 0.1 * loss_percep
 
-            scaler.scale(loss).backward()
+        scaler.scale(loss).backward()
 
-            # Gradient clipping to prevent nan
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.01)
+        # Gradient clipping to prevent nan
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.01)
 
-            scaler.step(optimizer)
-            scaler.update()
-
-            train_loss += loss.item() * inputs.size(0)
-            pbar.set_postfix({"loss": loss.item()})
-
-        train_loss /= len(train_ds)
+        scaler.step(optimizer)
+        scaler.update()
         scheduler.step()
 
-        # Validation
-        model.eval()
-        val_psnr = 0.0
-        with torch.no_grad():
-            for batch in tqdm(val_loader, desc=f"Epoch {epoch}/{args.epochs} [Val]", leave=False):
-                inputs = batch["input"].to(device)
-                gts = batch["gt"].to(device)
-                with torch.cuda.amp.autocast():
-                    preds = model(inputs)
-                for p, g in zip(preds, gts):
-                    val_psnr += calculate_psnr(p, g)
-                    
-        val_psnr /= len(val_ds)
+        train_loss += loss.item()
+        pbar.update(1)
+        pbar.set_postfix({"loss": loss.item()})
         
-        print(f"Epoch {epoch}: Train Loss {train_loss:.4f} | Val PSNR {val_psnr:.4f} | LR: {scheduler.get_last_lr()[0]:.2e}")
-        wandb.log({
-            "train/loss": train_loss,
-            "val/psnr": val_psnr,
-            "train/lr": scheduler.get_last_lr()[0],
-            "epoch": epoch
-        })
+        # Log periodically
+        if current_iter % 100 == 0:
+            wandb.log({
+                "train/loss": train_loss / 100,
+                "train/lr": scheduler.get_last_lr()[0],
+                "iter": current_iter
+            })
+            train_loss = 0.0
 
-        if val_psnr > best_psnr:
-            best_psnr = val_psnr
-            torch.save(model.state_dict(), save_dir / "best_model.pth")
-            print(f"Saved best model with PSNR {best_psnr:.4f}")
+        # Validation
+        if current_iter % args.val_freq == 0:
+            model.eval()
+            val_psnr = 0.0
+            with torch.no_grad():
+                for val_batch in tqdm(val_loader, desc=f"Iter {current_iter} [Val]", leave=False):
+                    v_inputs = val_batch["input"].to(device)
+                    v_gts = val_batch["gt"].to(device)
+                    with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                        v_preds = model(v_inputs)
+                    for p_out, g_out in zip(v_preds, v_gts):
+                        val_psnr += calculate_psnr(p_out, g_out)
+                        
+            val_psnr /= len(val_ds)
+            
+            print(f"\nIter {current_iter}: Val PSNR {val_psnr:.4f} | LR: {scheduler.get_last_lr()[0]:.2e}")
+            wandb.log({
+                "val/psnr": val_psnr,
+                "iter": current_iter
+            })
+
+            if val_psnr > best_psnr:
+                best_psnr = val_psnr
+                torch.save(model.state_dict(), save_dir / "best_model.pth")
+                print(f"Saved best model with PSNR {best_psnr:.4f}")
 
     torch.save(model.state_dict(), save_dir / "latest_model.pth")
     wandb.finish()

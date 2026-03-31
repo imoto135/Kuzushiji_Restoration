@@ -9,6 +9,8 @@
 ---
 
 ## Overview
+
+![Chart Overview](images/chart_overview.png)
 ![Results Overview](images/results2.png)
 
 Historical Japanese documents (*Kuzushiji*) are vital for cultural research but suffer from physical degradation such as stains, missing fragments, and ink bleeding. This project proposes a **two-stage framework** to selectively restore these documents:
