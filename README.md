@@ -90,12 +90,43 @@ Kuzushiji_Restoration/
 
 ### 1. Environment Setup
 
+#### Option A: Docker (recommended)
+
+```bash
+docker compose build
+docker compose run --rm kuzushiji bash
+```
+
+Inside the container, the repository is available at `/workspace/Kuzushiji_Restoration`.
+
+Example evaluation command:
+
+```bash
+python scripts/evaluation/calculate_5metrics.py \
+    --gt_dir data/full_padded/gt/test \
+    --pred_dir outputs/full_nafnet_predmask_charbpercep \
+    --mask_dir data/full_padded/gt_mask/test \
+    --output_csv outputs/full_nafnet_predmask_charbpercep/evaluation_full_nafnet_predmask_charbpercep.csv \
+    --use_wandb
+```
+
+Example mask prediction command:
+
+```bash
+python scripts/inference/predict_mask_unetpp.py \
+    --input_dir data/full_padded/lq \
+    --output_dir outputs/pred_masks_unetpp \
+    --model_path models/unet++/experiments/unet++_full_characters/best_model.pth
+```
+
+#### Option B: Conda
+
 ```bash
 git clone https://github.com/imoto135/Kuzushiji_Restoration.git
 cd Kuzushiji_Restoration
 
 # Create Conda environment
-conda env create -f environments/env_nafnet2.yml
+conda env create -f environments/env_restoration.yml
 conda activate nafnet2
 ```
 
@@ -120,10 +151,12 @@ python scripts/data_preprocessing/03_add_stain_5types.py
 Use the provided inference script to run the two-stage pipeline on damaged test images. By default, it uses the directory structure from `data/full_padded/`.
 
 ```bash
-python scripts/restore_with_nafnet.py \
-    --input-dir data/full_padded/lq/test \
-    --output-dir outputs/nafnet_test \
-    --mask-dir data/full_padded/pred_mask/test
+python scripts/restore.py \
+    --model_type nafnet \
+    --weights path/to/nafnet_checkpoint.pth \
+    --input_dir data/full_padded/lq/test \
+    --output_dir outputs/nafnet_test \
+    --mask_dir data/full_padded/pred_mask/test
 ```
 
 ### 4. Evaluation
@@ -133,7 +166,8 @@ Evaluate the restored images against the ground truth using standard and mask-sp
 ```bash
 python scripts/evaluation/calculate_5metrics.py \
     --gt_dir data/full_padded/gt/test \
-    --restored_dir outputs/nafnet_test \
+    --pred_dir outputs/nafnet_test \
+    --mask_dir data/full_padded/gt_mask/test \
     --output_csv outputs/nafnet_metrics.csv
 ```
 

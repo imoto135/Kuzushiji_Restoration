@@ -1,0 +1,19 @@
+services:
+  kuzushiji:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: kuzushiji-restoration:latest
+    container_name: kuzushiji-restoration
+    shm_size: "16gb"
+    gpus: all
+    working_dir: /workspace/Kuzushiji_Restoration
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      WANDB_DIR: /workspace/Kuzushiji_Restoration/wandb
+    volumes:
+      - ./:/workspace/Kuzushiji_Restoration
+    tty: true
+    stdin_open: true
+    command: bash

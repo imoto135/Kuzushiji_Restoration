@@ -12,40 +12,54 @@ This guide provides detailed instructions for setting up the development environ
 - **Python**: 3.7 - 3.10
 - **Conda**: Miniconda or Anaconda
 
+If you use Docker, you only need the NVIDIA driver and Docker with the NVIDIA Container Toolkit.
+
 ---
 
 ## 🐍 Environment Installation
+
+### Option 0: Docker (recommended)
+
+```bash
+docker compose build
+docker compose run --rm kuzushiji bash
+```
+
+The container starts in `/workspace/Kuzushiji_Restoration` and expects the repository to be bind-mounted. GPU access is enabled through `gpus: all` in `docker-compose.yml`.
 
 ### Option 1: NAFNet/MPRNet/SwinIR Environment (Python 3.10)
 
 ```bash
 cd Kuzushiji_Restoration
-conda env create -f environments/env_nafnet2.yml
+conda env create -f environments/env_restoration.yml
 conda activate nafnet2
 ```
 
 **Installed packages:**
-- PyTorch 1.12.0+cu113
-- torchvision 0.13.0+cu113
-- BasicSR
+- PyTorch 2.5.1 + cu121
+- torchvision 0.20.1 + cu121
 - opencv-python
+- lpips
+- thop
 - wandb
-- tensorboard
+- einops
+- timm
+- segmentation-models-pytorch and albumentations are available in the Docker image for Stage 1 workflows.
 
-### Option 2: Restormer Environment (Python 3.7)
+### Option 2: UNet++ / Stage 1 Environment (Python 3.10)
 
 ```bash
 cd Kuzushiji_Restoration
-conda env create -f environments/environment.yml
-conda activate restormer_env
+conda env create -f environments/env_unetpp.yml
+conda activate unetpp_env
 ```
 
 **Installed packages:**
-- PyTorch 1.9.0+cu111
-- torchvision 0.10.0+cu111
-- einops
-- timm
-- fvcore (for FLOPs calculation)
+- PyTorch 2.1 + cu118
+- torchvision 0.16 + cu118
+- segmentation-models-pytorch
+- albumentations
+- wandb
 
 ---
 
@@ -60,16 +74,16 @@ python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f
 
 Expected output:
 ```
-PyTorch version: 1.12.0+cu113
+PyTorch version: 2.5.1+cu121
 CUDA available: True
-CUDA version: 11.3
+CUDA version: 12.1
 GPU count: 2
 ```
 
-### Check BasicSR Installation
+### Check Core Packages
 
 ```bash
-python -c "import basicsr; print(f'BasicSR version: {basicsr.__version__}')"
+python -c "import torch, cv2, lpips; import segmentation_models_pytorch as smp; print('core packages ok')"
 ```
 
 ---
@@ -179,7 +193,7 @@ conda env remove -n nafnet2
 ### Update environment
 
 ```bash
-conda env update -f environments/env_nafnet2.yml --prune
+conda env update -f environments/env_restoration.yml --prune
 ```
 
 ---
