@@ -233,7 +233,7 @@ def calculate_flops(model, input_size=(1, 4, 128, 128)):
             return None, None
 
 
-def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use_gpu=True, model=None):
+def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use_gpu=True, gpu_id=0, model=None):
     """
     ディレクトリ内の画像を比較し、LPIPS, Masked PSNR, Masked SSIMを計算してCSVに出力
     ファイル名の正規化を行い、損傷サフィックスの有無に関わらずマッチング
@@ -242,7 +242,8 @@ def calculate_all_metrics(dir_gt, dir_pred, dir_mask, output_csv, args=None, use
     # 1. LPIPSモデルの準備
     print("LPIPSモデルを読み込んでいます...", flush=True)
     loss_fn = lpips.LPIPS(net='alex')
-    device = torch.device("cuda" if torch.cuda.is_available() and use_gpu else "cpu")
+    device = torch.device(f"cuda:{gpu_id}" if torch.cuda.is_available() and use_gpu else "cpu")
+    print(f"Using device: {device}")
     loss_fn.to(device)
     loss_fn.eval()
 
@@ -488,6 +489,9 @@ if __name__ == "__main__":
                         default="data/full_padded/lq/test/evaluation_full_lq.csv",
                         help='出力CSVファイルパス')
     
+    # GPU設定
+    parser.add_argument('--gpu', type=int, default=1, help='使用するGPUのインデックス')
+
     # wandb設定
     parser.add_argument('--use_wandb', action='store_true', help='wandbに結果を記録する')
     parser.add_argument('--wandb_project', type=str, default='Kuzushiji_Restoration', help='wandbプロジェクト名')
@@ -520,7 +524,7 @@ if __name__ == "__main__":
             settings=wandb.Settings(start_method="thread"),
         )
 
-    calculate_all_metrics(args.gt_dir, args.pred_dir, args.mask_dir, args.output_csv, args=args, model=None, use_gpu=False)
+    calculate_all_metrics(args.gt_dir, args.pred_dir, args.mask_dir, args.output_csv, args=args, model=None, use_gpu=True, gpu_id=args.gpu)
 
     if args.use_wandb:
         import wandb

@@ -53,22 +53,17 @@ RUN pip install \
     pandas>=1.5.0 \
     seaborn>=0.13.0
 
-COPY . /workspace/Kuzushiji_Restoration
-
-RUN python3 - <<'PY'
-from pathlib import Path
-for path in [
-    Path('data'),
-    Path('outputs'),
-    Path('wandb'),
-    Path('models/unet++/experiments'),
-    Path('models/nafnet/experiments'),
-    Path('models/restormer/experiments'),
-    Path('models/swinir/experiments'),
-    Path('models/joint/experiments'),
-    Path('models/classifier/experiments'),
-]:
-    path.mkdir(parents=True, exist_ok=True)
-PY
+# ファイルはdocker-compose.ymlのvolumeマウントで供給されるため、COPYは不要
+# 必要なディレクトリはコンテナ起動時に作成する
+RUN mkdir -p \
+    /workspace/Kuzushiji_Restoration/data \
+    /workspace/Kuzushiji_Restoration/outputs \
+    /workspace/Kuzushiji_Restoration/wandb \
+    /workspace/Kuzushiji_Restoration/models/unet++/experiments \
+    /workspace/Kuzushiji_Restoration/models/nafnet/experiments \
+    /workspace/Kuzushiji_Restoration/models/restormer/experiments \
+    /workspace/Kuzushiji_Restoration/models/swinir/experiments \
+    /workspace/Kuzushiji_Restoration/models/joint/experiments \
+    /workspace/Kuzushiji_Restoration/models/classifier/experiments
 
 CMD ["bash"]

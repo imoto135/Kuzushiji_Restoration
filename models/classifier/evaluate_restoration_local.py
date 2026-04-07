@@ -40,7 +40,10 @@ def evaluate(model_path, image_dir, device, batch_size=32):
     classes = checkpoint['classes']
     num_classes = len(classes)
     
-    model = models.resnet18(weights=None) # Structure only
+    try:
+        model = models.resnet18(weights=None) # Structure only
+    except TypeError:
+        model = models.resnet18(pretrained=False) # Fallback for older torchvision
     num_ftrs = model.fc.in_features
     model.fc = nn.Linear(num_ftrs, num_classes)
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -116,6 +119,7 @@ def main():
     parser.add_argument('--image_dir', type=str, required=True, help='Directory containing images to evaluate')
     parser.add_argument('--model_path', type=str, required=True, help='Path to trained model (.pth)')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size for evaluation')
+    parser.add_argument('--output_csv', type=str, default=None, help='Path to save per-image predictions to CSV')
     args = parser.parse_args()
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -125,7 +129,16 @@ def main():
     import warnings
     warnings.filterwarnings("ignore", category=FutureWarning)
 
-    evaluate(args.model_path, args.image_dir, device, args.batch_size)
+    results = evaluate(args.model_path, args.image_dir, device, args.batch_size)
+    
+    if args.output_csv and results:
+        import csv
+        with open(args.output_csv, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=['image', 'prediction', 'ground_truth', 'correct'])
+            writer.writeheader()
+            for r in results:
+                writer.writerow(r)
+        logging.info(f"Saved inference results to {args.output_csv}")
 
 if __name__ == "__main__":
     main()

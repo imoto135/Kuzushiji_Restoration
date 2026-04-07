@@ -128,6 +128,8 @@ def main():
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--device_id", type=int, default=1, help="GPU ID to use")
     parser.add_argument("--exp_name", type=str, default="MambaIR_Stage2_v2")
+    parser.add_argument("--resume_weight", type=str, default="", help="Path to checkpoint to resume weights from")
+    parser.add_argument("--resume_state", type=str, default="", help="Path to full checkpoint state to resume from")
     args = parser.parse_args()
 
     device = torch.device(f"cuda:{args.device_id}")
@@ -147,23 +149,43 @@ def main():
 
     # Initialize MambaIR (Lighter configuration for fair comparison and speed)
     model = MambaIR(upscale=1, in_chans=4, out_chans=3, img_size=128, 
-                    embed_dim=64, depths=(4, 4, 4, 4), d_state=16).to(device)
+                    embed_dim=64, depths=(4, 4, 4, 4), d_state=16)
+                    
+    current_iter = 0
+    best_psnr = 0.0
+    checkpoint = None
+
+    if args.resume_state:
+        print(f"Loading full state from {args.resume_state}")
+        checkpoint = torch.load(args.resume_state, map_location="cpu")
+        model.load_state_dict(checkpoint.get('model_state_dict', checkpoint))
+    elif args.resume_weight:
+        print(f"Loading weights from {args.resume_weight}")
+        checkpoint = torch.load(args.resume_weight, map_location="cpu")
+        model.load_state_dict(checkpoint.get('model_state_dict', checkpoint))
+        
+    model = model.to(device)
 
     # NAFNet setup: AdamW 2e-4 for stability
     optimizer = optim.AdamW(model.parameters(), lr=2e-4, betas=(0.9, 0.9), weight_decay=0.0)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.total_iters, eta_min=1e-7)
 
-    criterion_charb = CharbonnierLoss(eps=1e-6).to(device)
+    if args.resume_state and checkpoint and 'optimizer_state_dict' in checkpoint:
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        current_iter = checkpoint.get('iter', 0)
+        best_psnr = checkpoint.get('best_psnr', 0.0)
+        pbar_start = current_iter
+        print(f"Resumed from iteration {current_iter}")
+
+    criterion_charb = CharbonnierLoss(eps=1e-3).to(device)
     criterion_percep = lpips.LPIPS(net="vgg").to(device)
     for p in criterion_percep.parameters():
         p.requires_grad = False
 
-    scaler = torch.amp.GradScaler('cuda')
-    best_psnr = 0.0
     save_dir = Path("experiments") / args.exp_name
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    current_iter = 0
     train_iter = iter(train_loader)
     
     pbar = tqdm(total=args.total_iters, desc="Training")
@@ -190,19 +212,17 @@ def main():
             
             loss_charb = criterion_charb(preds, gts)
             # LPIPS expects input in range [-1, 1], our data is [0, 1]
-            loss_percep = criterion_percep(preds * 2 - 1, gts * 2 - 1).mean()
+            loss_percep = criterion_percep(preds.float() * 2 - 1, gts.float() * 2 - 1).mean()
             
             # NAFNet setting: Charb: 1.0, Percep: 0.1
             loss = loss_charb + 0.1 * loss_percep
 
-        scaler.scale(loss).backward()
+        loss.backward()
 
         # Gradient clipping to prevent nan
-        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.01)
 
-        scaler.step(optimizer)
-        scaler.update()
+        optimizer.step()
         scheduler.step()
 
         train_loss += loss.item()
@@ -241,10 +261,24 @@ def main():
 
             if val_psnr > best_psnr:
                 best_psnr = val_psnr
-                torch.save(model.state_dict(), save_dir / "best_model.pth")
+                save_dict = {
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'iter': current_iter,
+                    'best_psnr': best_psnr
+                }
+                torch.save(save_dict, save_dir / "best_model.pth")
                 print(f"Saved best model with PSNR {best_psnr:.4f}")
 
-    torch.save(model.state_dict(), save_dir / "latest_model.pth")
+    save_dict = {
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'iter': current_iter,
+        'best_psnr': best_psnr
+    }
+    torch.save(save_dict, save_dir / "latest_model.pth")
     wandb.finish()
     print("Training finished!")
 

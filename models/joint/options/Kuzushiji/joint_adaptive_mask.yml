@@ -12,7 +12,7 @@ name: Joint_UNetPP_NAFNet_AdaptiveMask
 data:
   base: ../../data/full_padded
   img_size: 128
-  batch_size: 192   # A6000 48GB: Memory maximized (approx 42-45GB)
+  batch_size: 128   # ~32GB VRAM on A6000 (49GB), safe headroom vs 192 that caused OOM
   num_workers: 24
 
 # ── Pretrained weights ────────────────────────────────────────────────────────
@@ -36,18 +36,18 @@ model:
 # Total epochs = phase1_epochs + phase2_epochs + phase3_epochs
 # Set phase1_epochs=0 to skip the NAFNet-only warmup (not recommended)
 phases:
-  phase1_epochs: 20   # Phase 1: UNet++ frozen, NAFNet warms up
-  phase2_epochs: 30   # Phase 2: UNet++ unfrozen at low lr (lr_unetpp_phase2)
-  # Phase 3 = remaining epochs (total = 100)
+  phase1_epochs: 5    # Phase 1: UNet++ frozen, NAFNet warms up (short: NAFNet already converged)
+  phase2_epochs: 10   # Phase 2: UNet++ unfrozen at low lr
+  # Phase 3 = remaining epochs (ep 16-100): full end-to-end joint learning
 
 # ── Training ──────────────────────────────────────────────────────────────────
 train:
   epochs: 100
 
   # Learning rates
-  lr:             !!float 1e-4    # NAFNet (and τ) lr — used throughout
-  lr_unetpp:      !!float 1e-4    # UNet++ lr in Phase 3 (full end-to-end)
-  lr_unetpp_phase2: !!float 1e-5  # UNet++ lr in Phase 2 (soft unfreezing)
+  lr:             !!float 3e-5    # NAFNet (and τ) lr — reduced because NAFNet is pre-converged
+  lr_unetpp:      !!float 1e-5    # UNet++ lr in Phase 3 (full end-to-end)
+  lr_unetpp_phase2: !!float 1e-6  # UNet++ lr in Phase 2 (soft unfreezing)
   weight_decay:   !!float 1e-5
 
   # λ_seg decay: linearly from start → end over all epochs

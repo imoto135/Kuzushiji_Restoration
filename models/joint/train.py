@@ -246,34 +246,50 @@ def apply_phase_settings(
     phase: int, prev_phase: int,
     model: JointRestorationNet,
     optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.CosineAnnealingLR,
     lr_nafnet: float, lr_unetpp: float, lr_unetpp_phase2: float,
     logger: logging.Logger,
 ) -> None:
-    """Apply freeze/unfreeze and lr changes when transitioning between phases."""
+    """Apply freeze/unfreeze and lr changes when transitioning between phases.
+
+    IMPORTANT: scheduler.base_lrs must be updated together with optimizer.param_groups["lr"].
+    Otherwise, the next scheduler.step() call will overwrite the manually set lr
+    using the stale base_lr (e.g. 0.0 from Phase 1), causing UNet++ lr to stay near 0.
+    """
     if phase == prev_phase:
         return  # No change needed
 
     logger.info(f"Phase transition: {prev_phase} → {phase}")
 
     if phase == 1:
-        # NAFNet warmup: freeze UNet++, high lr for NAFNet
+        # NAFNet warmup: freeze UNet++ via requires_grad=False
+        # Set lr=0 AND update base_lrs so scheduler doesn't use 0 as base in later phases
         model.freeze_unetpp()
-        optimizer.param_groups[0]["lr"] = lr_nafnet        # NAFNet
-        optimizer.param_groups[1]["lr"] = 0.0              # UNet++ (frozen)
+        new_lrs = [lr_nafnet, 0.0]
+        for pg, lr in zip(optimizer.param_groups, new_lrs):
+            pg["lr"] = lr
+            pg["initial_lr"] = lr
+        scheduler.base_lrs = new_lrs
         logger.info(f"[Phase 1] UNet++ frozen. NAFNet lr={lr_nafnet:.2e}")
 
     elif phase == 2:
         # Soft unfreezing: UNet++ learns with low lr
         model.unfreeze_unetpp()
-        optimizer.param_groups[0]["lr"] = lr_nafnet        # NAFNet
-        optimizer.param_groups[1]["lr"] = lr_unetpp_phase2 # UNet++ (small lr)
+        new_lrs = [lr_nafnet, lr_unetpp_phase2]
+        for pg, lr in zip(optimizer.param_groups, new_lrs):
+            pg["lr"] = lr
+            pg["initial_lr"] = lr
+        scheduler.base_lrs = new_lrs
         logger.info(f"[Phase 2] UNet++ unfrozen at lr={lr_unetpp_phase2:.2e}.")
 
     elif phase == 3:
         # Full end-to-end: both networks at their nominal lr
         model.unfreeze_unetpp()
-        optimizer.param_groups[0]["lr"] = lr_nafnet        # NAFNet
-        optimizer.param_groups[1]["lr"] = lr_unetpp        # UNet++
+        new_lrs = [lr_nafnet, lr_unetpp]
+        for pg, lr in zip(optimizer.param_groups, new_lrs):
+            pg["lr"] = lr
+            pg["initial_lr"] = lr
+        scheduler.base_lrs = new_lrs
         logger.info(f"[Phase 3] Full end-to-end. UNet++ lr={lr_unetpp:.2e}")
 
 
@@ -421,10 +437,11 @@ def main():
         weight_decay=cfg["train"].get("weight_decay", 1e-5),
     )
 
-    # ── Scheduler: CosineAnnealing over total iter ────────────────────────
-    total_iters = epochs * len(train_loader)
+    # ── Scheduler: CosineAnnealing over epochs (step once per epoch) ───────
+    # T_max=epochs because scheduler.step() is called once per epoch, not per iter.
+    # Using total_iters here would make lr almost frozen for the entire 100 epochs.
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=total_iters, eta_min=1e-7
+        optimizer, T_max=epochs, eta_min=1e-7
     )
     scaler = torch.cuda.amp.GradScaler()
 
@@ -446,6 +463,7 @@ def main():
         apply_phase_settings(
             phase=new_phase, prev_phase=current_phase,
             model=model, optimizer=optimizer,
+            scheduler=scheduler,
             lr_nafnet=lr_nafnet, lr_unetpp=lr_unetpp,
             lr_unetpp_phase2=lr_unetpp_phase2,
             logger=logger,
@@ -534,11 +552,17 @@ def main():
         else:
             es_counter += 1
             logger.info(f"No improvement. ES counter: {es_counter}/{es_patience}")
-            # Phase 1やPhase 2の途中で学習が終わらないよう、Early StoppingはPhase 3でのみ有効にするか、
-            # もしくは Phase更新時にカウンタをリセットすべきですが、今回は最新のPhaseまで回すことを保証します
             if es_counter >= es_patience:
-                if current_phase < 3:
-                    logger.info(f"ES threshold reached, but ignored because we are still in Phase {current_phase}.")
+                if current_phase == 1:
+                    logger.info("ES threshold reached in Phase 1. Skipping remaining epochs to start Phase 2.")
+                    skipped_epochs = phase1_end - epoch
+                    phase1_end = epoch
+                    phase2_end -= skipped_epochs
+                    es_counter = 0
+                elif current_phase == 2:
+                    logger.info("ES threshold reached in Phase 2. Skipping remaining epochs to start Phase 3.")
+                    phase2_end = epoch
+                    es_counter = 0
                 else:
                     logger.info(f"Early stopping at epoch {epoch}.")
                     break

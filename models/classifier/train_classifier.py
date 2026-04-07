@@ -153,16 +153,17 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, device, num
 
 def main():
     parser = argparse.ArgumentParser(description='Train Kuzushiji Classifier on Local Dataset')
-    parser.add_argument('--data_dir', type=str, default='./data/hiragana_fulldataset_5stain/gt', help='Path to dataset root')
-    parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--data_dir', type=str, default='./data/full_padded/gt', help='Path to dataset root')
+    parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
     parser.add_argument('--epochs', type=int, default=50, help='Number of epochs (default upgraded to 50)')
     parser.add_argument('--patience', type=int, default=5, help='Early stopping patience')
     parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay (L2 regularization)')
-    parser.add_argument('--output_dir', type=str, default='./evaluation', help='Directory to save the model')
+    parser.add_argument('--output_dir', type=str, default='./models/classifier/output_full_padded', help='Directory to save the model')
+    parser.add_argument('--gpu', type=int, default=1, help='GPU index to use')
     args = parser.parse_args()
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
 
     # Data augmentation and normalization for training
@@ -209,14 +210,14 @@ def main():
     val_dataset = KuzushijiFlatDataset(val_dir, transform=data_transforms['val'], classes=classes)
     
     image_datasets = {'train': train_dataset, 'val': val_dataset}
-    dataloaders = {x: DataLoader(image_datasets[x], batch_size=args.batch_size, shuffle=True, num_workers=4)
+    dataloaders = {x: DataLoader(image_datasets[x], batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
                   for x in ['train', 'val']}
     
     dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'val']}
     logging.info(f"Dataset sizes: {dataset_sizes}")
 
     # Model setup
-    model_ft = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+    model_ft = models.resnet18(pretrained=True)
     num_ftrs = model_ft.fc.in_features
     model_ft.fc = nn.Linear(num_ftrs, len(classes))
 
@@ -235,7 +236,7 @@ def main():
 
     # Save
     os.makedirs(args.output_dir, exist_ok=True)
-    save_path = os.path.join(args.output_dir, 'best_classifier_local.pth')
+    save_path = os.path.join(args.output_dir, 'full_best_classifier_local.pth')
     
     # Save model and list of classes for inference
     torch.save({

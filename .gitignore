@@ -75,9 +75,7 @@ temp/
 *.pth
 !models/*/pretrained/*.pth
 
-# CSV results (大量の場合)
-# *.csv
-# サンプルCSVは含めたい場合はコメントアウト
+*.csv
 
 # LaTeX
 *.aux

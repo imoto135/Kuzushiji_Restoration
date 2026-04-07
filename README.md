@@ -11,7 +11,8 @@
 ## Overview
 
 ![Chart Overview](images/chart_overview.png)
-![Results Overview](images/results2.png)
+![Results Stage1](images/Stage1_result.png)
+![Results Stage2](images/Stage2_result.png)
 
 Historical Japanese documents (*Kuzushiji*) are vital for cultural research but suffer from physical degradation such as stains, missing fragments, and ink bleeding. This project proposes a **two-stage framework** to selectively restore these documents:
 
@@ -137,7 +138,7 @@ Ensure your dataset is placed under `data/full_padded/` following the directory 
 The `scripts/data_preprocessing/` directory contains tools to prepare the dataset:
 - `01_pad_images.py`: Resizes images and pads borders using the detected background color.
 - `02_generate_otsu_masks.py`: Generates ground truth binary masks (GT Masks) for text strokes.
-- `03_add_stain_5types.py`: Applies simulated physical degradations (Missing, Stain, Scratch, Ghosting, Transparent Stain) to create low-quality (LQ) input images.
+- `03_add_stain_5types.py`: Applies simulated physical degradations (Missing, Stain, Abrasion, Ghosting, Transparent Stain) to create low-quality (LQ) input images.
 
 ```bash
 # Example: Generate padding, GT masks, and degraded LQ images
