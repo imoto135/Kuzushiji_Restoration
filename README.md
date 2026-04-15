@@ -83,6 +83,24 @@ UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフト�
 
 > **考察**: PredMask条件はNoMaskを上回るケースが多く、Stage 1で得た損傷情報が復元に有効に機能していることを確認。GTMaskとのギャップはStage 1精度改善の余地を示しており、今後の課題として位置づけています。
 
+#### OCR評価の詳細（`models/classifier/`）
+
+視覚品質指標（PSNR/SSIM/LPIPS）だけでなく、**「実際に文字として読めるか」**という実用指標を加えるため、くずし字分類器を独自に設計・学習しました。
+
+| 項目 | 内容 |
+|:---|:---|
+| **アーキテクチャ** | ResNet-18（ImageNet事前学習済み、最終FC層を差し替えてFine-tuning） |
+| **分類クラス数** | 78クラス（ひらがな文字種、ファイル名のUnicodeプレフィックスから自動取得） |
+| **学習データ** | 訓練: 108,536枚 / 検証: 13,567枚 |
+| **入力前処理** | グレースケール→RGB変換、224×224リサイズ、RandomRotation (±10°)・RandomAffine (translate=0.1)・ImageNet正規化 |
+| **最適化** | SGD (momentum=0.9, weight_decay=1e-4)、ReduceLROnPlateau (factor=0.1, patience=2) |
+| **Early Stopping** | patience=5、Epoch 12 で収束 |
+| **検証精度** | **98.72%** |
+
+> 実装: [models/classifier/train_classifier.py](models/classifier/train_classifier.py) / 推論: [models/classifier/evaluate_restoration_local.py](models/classifier/evaluate_restoration_local.py)
+
+この分類器を復元画像に適用してOCR精度を算出することで、復元手法の「文字認識への実用的な貢献度」を定量評価しています。HorizontalFlipを意図的に除外するなど、くずし字の方向性を考慮したAugmentation設計も行いました。
+
 ### 2. 計算効率（NVIDIA RTX A6000、$128 \times 128 \times 4$ 入力）
 
 | モデル | パラメータ数 (M)↓ | FLOPs (G)↓ | レイテンシ (ms)↓ |
@@ -103,6 +121,7 @@ UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフト�
 | **Deep Learning** | PyTorch, BasicSR |
 | **モデル** | NAFNet, SwinIR, Restormer, MPRNet, UNet++ |
 | **評価指標** | PSNR, SSIM, LPIPS, OCR (PaddleOCR) |
+| **OCR分類器** | ResNet-18 (78クラス・ひらがな、自前学習) |
 | **実験管理** | Weights & Biases (wandb) |
 | **環境** | Docker, Conda, NVIDIA A6000 GPU |
 
