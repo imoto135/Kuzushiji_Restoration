@@ -1,14 +1,18 @@
 # Kuzushiji Restoration: Mask-Guided Two-Stage Framework
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+<p align="center">
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.9+-blue.svg" alt="Python 3.9+"></a>
+  <a href="https://pytorch.org/"><img src="https://img.shields.io/badge/PyTorch-2.0+-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License"></a>
+  <a href="https://github.com/imoto135/Kuzushiji_Restoration/stargazers"><img src="https://img.shields.io/github/stars/imoto135/Kuzushiji_Restoration?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/imoto135/Kuzushiji_Restoration/issues"><img src="https://img.shields.io/github/issues/imoto135/Kuzushiji_Restoration" alt="GitHub issues"></a>
+</p>
 
 > **個人研究プロジェクト** — 物理的に損傷した*くずし字*（古典日本語くずし字）文書の復元に向けた、マスクガイド付き二段階フレームワークの設計・実装・比較評価
 
 ---
 
-## プロジェクト概要 (What & Why)
+## 🔍 プロジェクト概要 (What & Why)
 
 歴史的な日本語文書（くずし字）は文化研究において非常に重要ですが、経年劣化（染み・欠損・にじみ等）によって可読性が大きく損なわれています。本プロジェクトでは、**「まず損傷箇所を検出し、その情報を使って復元する」という二段階アプローチ**を独自設計し、4種の最先端アーキテクチャで比較検証しました。
 
@@ -19,15 +23,34 @@
 
 ---
 
-## デモ・結果
+## 🎬 デモ・結果
 
-| 概要チャート | Stage 1（損傷検出）| Stage 2（復元結果）|
-|:---:|:---:|:---:|
-| ![Chart Overview](images/chart_overview.png) | ![Stage1 Result](images/stage1_result.png) | ![Stage2 Result](images/stage2_result.png) |
+### 対象とする劣化パターン
+
+<p align="center">
+  <img src="images/damage_examples.png" width="85%" alt="損傷実例">
+</p>
+<p align="center">
+  <em>(a) Stain &nbsp;|&nbsp; (b) Transparent Stain &nbsp;|&nbsp; (c) Missing &nbsp;|&nbsp; (d) Ghosting &nbsp;|&nbsp; (e) Abrasion</em><br>
+  <sub>実際の古典文書に見られる5種類の物理的劣化。繊細な筆跡と重なるため、原本の墨跡との区別が困難。</sub>
+</p>
+
+### フレームワーク結果
+
+<p align="center">
+  <img src="images/chart_overview.png" width="30%" alt="フレームワーク概要図">
+  &nbsp;&nbsp;
+  <img src="images/stage1_result.png" width="30%" alt="Stage 1 損傷検出結果">
+  &nbsp;&nbsp;
+  <img src="images/stage2_result.png" width="30%" alt="Stage 2 復元結果">
+</p>
+<p align="center">
+  <em>左: フレームワーク概要 &nbsp;|&nbsp; 中: Stage 1 損傷検出 &nbsp;|&nbsp; 右: Stage 2 復元結果</em>
+</p>
 
 ---
 
-## 技術的な取り組み (How)
+## 🔬 技術的な取り組み (How)
 
 ### フレームワーク設計
 
@@ -38,13 +61,13 @@
 [Stage 1] UNet++ → ソフト損傷マスク  M̂ ∈ [0, 1]
     │
     ▼ (RGB + Mask = 4ch入力)
-[Stage 2] NAFNet / SwinIR / Restormer / MPRNet → 復元画像
+[Stage 2] NAFNet / SwinIR / Restormer / MPRNet / MambaIR → 復元画像
 ```
 
-**Stage 1 — 損傷局所化**  
+**🔎 Stage 1 — 損傷局所化**  
 UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフトマスク**を生成。バイナリマスクでは表現できない「グラデーションのある損傷領域」を扱えるよう設計しました。
 
-**Stage 2 — マスクガイド付き復元**  
+**🛠 Stage 2 — マスクガイド付き復元**  
 予測マスクを第4チャンネルとして結合した **4ch入力**を採用し、損傷箇所の情報を復元モデルに明示的に与えます。
 
 ### 独自の工夫
@@ -58,9 +81,9 @@ UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフト�
 
 ---
 
-## 結果・評価
+## 📊 結果・評価
 
-### 1. 復元品質 & OCR精度
+### 1. 復元品質 & OCR精度（full_padded データセット）
 
 マスク条件 3種類で比較：**NoMask**（ガイドなし）/ **PredMask**（提案手法）/ **GTMask**（理論上限）
 
@@ -83,7 +106,23 @@ UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフト�
 
 > **考察**: PredMask条件はNoMaskを上回るケースが多く、Stage 1で得た損傷情報が復元に有効に機能していることを確認。GTMaskとのギャップはStage 1精度改善の余地を示しており、今後の課題として位置づけています。
 
-#### OCR評価の詳細（`models/classifier/`）
+---
+
+### 2. MambaIR 評価（hiragana_fulldataset_5stain）
+
+State Space Model ベースの **MambaIR** を5種劣化データセットで評価した結果です。
+
+| モデル | 条件 | PSNR↑ | Masked PSNR↑ | SSIM↑ | Masked SSIM↑ | LPIPS↓ | OCR精度↑ |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **MambaIR** | NoMask | 37.45 | 33.99 | 0.9695 | 0.9653 | 0.02356 | 97.35% |
+| | **PredMask (提案)** | 37.53 | 34.10 | 0.9699 | 0.9660 | 0.02296 | 97.35% |
+| | GTMask (上限) | **39.71** | **36.66** | **0.9754** | **0.9805** | **0.01783** | **97.80%** |
+
+> GTMaskがLPIPS・PSNR・OCR全指標で最高値。PredMaskはNoMaskを上回り、予測マスクの有効性を確認。
+
+---
+
+### 3. OCR評価の詳細（`models/classifier/`）
 
 視覚品質指標（PSNR/SSIM/LPIPS）だけでなく、**「実際に文字として読めるか」**という実用指標を加えるため、くずし字分類器を独自に設計・学習しました。
 
@@ -101,7 +140,9 @@ UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフト�
 
 この分類器を復元画像に適用してOCR精度を算出することで、復元手法の「文字認識への実用的な貢献度」を定量評価しています。HorizontalFlipを意図的に除外するなど、くずし字の方向性を考慮したAugmentation設計も行いました。
 
-### 2. 計算効率（NVIDIA RTX A6000、$128 \times 128 \times 4$ 入力）
+---
+
+### 4. 計算効率（NVIDIA RTX A6000、$128 \times 128 \times 4$ 入力）
 
 | モデル | パラメータ数 (M)↓ | FLOPs (G)↓ | レイテンシ (ms)↓ |
 | :--- | :---: | :---: | :---: |
@@ -109,34 +150,53 @@ UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフト�
 | **SwinIR** | <u>11.90</u> | 49.3 | 28.2 |
 | **Restormer** | 26.10 | <u>16.1</u> | 18.4 |
 | **NAFNet** | **9.25** | **14.8** | **8.1** |
+| **MambaIR** | 1.48 | — | — |
 
 > NAFNet は最軽量かつ最速でありながら、LPIPS・OCR精度でも競合するパフォーマンスを発揮。**精度と効率のバランスに最も優れたモデル**と評価しています。
 
 ---
 
-## 技術スタック
+## 🛠 技術スタック
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch">
+  <img src="https://img.shields.io/badge/BasicSR-FF6B35?logoColor=white" alt="BasicSR">
+  <img src="https://img.shields.io/badge/WandB-FFBE00?logo=weightsandbiases&logoColor=black" alt="WandB">
+  <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/CUDA-76B900?logo=nvidia&logoColor=white" alt="CUDA">
+  <img src="https://img.shields.io/badge/Conda-44A833?logo=anaconda&logoColor=white" alt="Conda">
+</p>
 
 | カテゴリ | 技術 |
 |:---|:---|
 | **Deep Learning** | PyTorch, BasicSR |
-| **モデル** | NAFNet, SwinIR, Restormer, MPRNet, UNet++ |
-| **評価指標** | PSNR, SSIM, LPIPS, OCR (PaddleOCR) |
-| **OCR分類器** | ResNet-18 (78クラス・ひらがな、自前学習) |
+| **復元モデル** | NAFNet, SwinIR, Restormer, MPRNet, MambaIR |
+| **検出モデル** | UNet++ (SE-ResNeXt-50 バックボーン) |
+| **評価指標** | PSNR, SSIM, LPIPS, OCR (ResNet-18 分類器) |
 | **実験管理** | Weights & Biases (wandb) |
-| **環境** | Docker, Conda, NVIDIA A6000 GPU |
+| **環境** | Docker, Conda, NVIDIA RTX A6000 |
 
 ---
 
-## プロジェクト構成
+## 📁 プロジェクト構成
 
 ```
 Kuzushiji_Restoration/
 ├── configs/                   # 各モデルの学習設定 (YAML)
-├── models/                    # モデル実装 (BasicSRベース)
+├── models/
+│   ├── nafnet/                # NAFNet 実装 (BasicSRベース)
+│   ├── swinir/                # SwinIR 実装
+│   ├── restormer/             # Restormer 実装
+│   ├── mprnet/                # MPRNet 実装
+│   ├── mamba/                 # MambaIR 実装
+│   ├── unet++/                # Stage 1: 損傷マスク検出
+│   ├── classifier/            # OCR評価用分類器
+│   └── joint/                 # Joint End-to-End 学習
 ├── scripts/
 │   ├── data_preprocessing/    # 前処理: パディング・Otsuマスク生成・劣化合成
 │   ├── evaluation/            # 評価: PSNR / SSIM / LPIPS / OCR
-│   └── restore_with_*.py      # 推論スクリプト
+│   └── inference/             # 推論スクリプト
 └── data/
     └── hiragana_fulldataset_5stain/
         ├── gt/                # 正解画像
@@ -147,7 +207,7 @@ Kuzushiji_Restoration/
 
 ---
 
-## セットアップ & 実行方法
+## 🚀 セットアップ & 実行方法
 
 ### 環境構築
 
@@ -193,6 +253,14 @@ python scripts/restore.py \
     --input_dir data/full_padded/lq/test \
     --output_dir outputs/nafnet_test \
     --mask_dir data/full_padded/pred_mask/test
+
+# Stage 2: MambaIR による復元 (5stainデータセット)
+python models/mamba/restore_mamba_5stain.py \
+    --mask_type predmask \
+    --weights models/mamba/experiments/MambaIR_5stain_Predmask/best_model.pth \
+    --input_dir data/hiragana_fulldataset_5stain/lq/test \
+    --mask_dir  data/hiragana_fulldataset_5stain/pred_mask/test \
+    --output_dir outputs/mamba_5stain/predmask/test
 ```
 
 ### 評価
@@ -208,13 +276,14 @@ python scripts/evaluation/calculate_5metrics.py \
 
 ---
 
-## 参考文献
+## 📚 参考文献
 
 ### モデルアーキテクチャ
 - **NAFNet**: Chen et al., "Simple Baselines for Image Restoration", ECCV 2022 [[Paper]](https://arxiv.org/abs/2204.04676)
 - **MPRNet**: Zamir et al., "Multi-Stage Progressive Image Restoration", CVPR 2021 [[Paper]](https://arxiv.org/abs/2102.02808)
 - **SwinIR**: Liang et al., "SwinIR: Image Restoration Using Swin Transformer", ICCV 2021 [[Paper]](https://arxiv.org/abs/2108.10257)
 - **Restormer**: Zamir et al., "Restormer: Efficient Transformer for High-Resolution Image Restoration", CVPR 2022 [[Paper]](https://arxiv.org/abs/2111.09881)
+- **MambaIR**: Guo et al., "MambaIR: A Simple Baseline for Image Restoration with State-Space Model", ECCV 2024 [[Paper]](https://arxiv.org/abs/2402.15648)
 - **UNet++**: Zhou et al., "UNet++: A Nested U-Net Architecture for Medical Image Segmentation" [[Paper]](https://arxiv.org/abs/1807.10165)
 
 ### データセット
@@ -222,7 +291,7 @@ python scripts/evaluation/calculate_5metrics.py \
 
 ---
 
-## ライセンス
+## ⚖️ ライセンス
 
 本プロジェクトは MIT ライセンスのもとで公開しています。
 
@@ -233,6 +302,6 @@ python scripts/evaluation/calculate_5metrics.py \
 
 ---
 
-## 作者
+## 👤 作者
 
 **Imoto** — [@imoto135](https://github.com/imoto135)
