@@ -148,6 +148,34 @@ UNet++ (Encoder: SE-ResNeXt50) に対し、構造・正則化の各変更が精�
 
 > **考察**: NAFNet は PredMask 条件で LPIPS=0.0205（最良）・OCR=97.97%（最良タイ）を達成。局所ゲーティング機構が不完全マスクによる誤差伝播を抑制するため、実用条件で最も安定した性能を示す。MambaIR は GTMask 条件で mPSNR・mSSIM が最高値を記録するが、PredMask への性能低下幅（36.66→34.10 dB）が最大であり、SSM の大域受容野がマスク不精度に敏感であることを示す。GTMask–PredMask ギャップは Stage 1 精度が依然としてパイプライン全体のボトルネックであることを示す。
 
+<details>
+<summary><strong>Stage 2 損失関数・マスク戦略アブレーション（NAFNet、クリックで展開）</strong></summary>
+
+NAFNet を用いて損失関数とマスク入力戦略の各変種を比較しました。
+
+| 手法 | LPIPS↓ | PSNR↑ | Masked PSNR↑ | SSIM↑ | Masked SSIM↑ |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **charbpercep (採用)** | **0.0205** | 36.688 | 33.212 | 0.9650 | 0.9609 |
+| TVLoss | 0.0209 | 36.614 | 33.118 | 0.9645 | 0.9608 |
+| predmask_baseline | 0.0255 | 37.436 | 34.095 | 0.9705 | 0.9660 |
+| EdgeOnly | 0.0252 | 37.407 | 33.925 | 0.9699 | 0.9654 |
+| dropout | 0.0259 | **37.556** | **34.159** | **0.9708** | **0.9667** |
+| nomask | 0.0267 | 37.401 | 34.054 | 0.9703 | 0.9657 |
+| MaskMorph | 0.0310 | 34.951 | 30.931 | 0.9543 | 0.9417 |
+
+各手法の概要：
+- **charbpercep**: Charbonnier Loss + Perceptual Loss (λ=0.1) の混合損失
+- **TVLoss**: Total Variation 損失を追加した変種
+- **predmask_baseline**: 予測マスクをそのまま第4チャンネルとして入力するベースライン
+- **EdgeOnly**: マスクのエッジ情報のみを入力チャンネルとして使用
+- **dropout**: 学習時にマスクチャンネルをランダムにドロップアウト
+- **nomask**: マスクなし（3ch RGB のみ）
+- **MaskMorph**: モルフォロジー処理で膨張させたマスクを入力
+
+PSNR・SSIM では dropout が最高値を記録するが、**LPIPS（知覚的類似度）では charbpercep が最良**。くずし字の細いストロークの知覚品質を重視し、TVLoss がストローク構造を過剰に平滑化することをアブレーションで確認したため、charbpercep を採用。
+
+</details>
+
 ---
 
 ### 3. OCR評価の詳細（`models/classifier/`）
