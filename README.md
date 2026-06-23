@@ -280,8 +280,6 @@ python scripts/evaluation/calculate_5metrics.py \
     --output_csv outputs/nafnet_metrics.csv \
     --use_wandb
 ```
-env COPYFILE_DISABLE=1 tar --no-xattrs -c -f - -C /Users/imoto/dev/research/full_nafnet_nomask_charbpercep/full_nafnet_nomask_charbpercep . | pv | ssh -p 20010 imoto@172.24.160.42 "mkdir -p /home/imoto/Kuzushiji_Restoration/outputs/full_nafnet_nomask_charbpercep && tar -x -f - -C /home/imoto/Kuzushiji_Restoration/outputs/full_nafnet_nomask_charbpercep 2>/dev/null"
----
 
 ## 📚 参考文献
 
