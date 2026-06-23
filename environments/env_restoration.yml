@@ -1,4 +1,4 @@
-name: nafnet2
+name: nafnet_env
 channels:
   - pytorch
   - nvidia

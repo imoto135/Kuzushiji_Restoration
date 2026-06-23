@@ -85,54 +85,45 @@ UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフト�
 
 ### 🔍 Stage 1 — マスク生成（UNet++ による文字領域推定）
 
-**アーキテクチャ比較**（エンコーダー: SE-ResNeXt50 に統一）
+**アーキテクチャ比較**（エンコーダー: SE-ResNeXt50 に統一、CD = Coarse Dropout）
 
 | モデル | F1-score↑ | Hard IoU↑ | Soft IoU↑ | MAE↓ |
 | :--- | :---: | :---: | :---: | :---: |
 | DeepLabV3+ | 0.8295 | 0.7420 | 0.6986 | 0.0989 |
 | U-Net | 0.9669 | 0.9409 | 0.9278 | 0.0180 |
-| **UNet++ (採用)** | **0.9699** | **0.9472** | **0.9345** | **0.0176** |
+| UNet++ | 0.9699 | 0.9472 | 0.9345 | 0.0176 |
+| **UNet++ + CD (採用)** | **0.9719** | **0.9504** | **0.9406** | **0.0155** |
 
-**損傷タイプ別精度**（最終モデル: UNet++ + SE-ResNeXt50 + Input Dropout）
-
-| 損傷タイプ | F1-score↑ | Hard IoU↑ | Soft IoU↑ | MAE↓ |
-| :--- | :---: | :---: | :---: | :---: |
-| Missing（欠損） | 0.9608 | 0.9276 | 0.8977 | 0.0176 |
-| Ghosting（裏写り） | 0.9784 | 0.9592 | 0.9299 | 0.0121 |
-| Stain（染み） | 0.9620 | 0.9293 | 0.8990 | 0.0178 |
-| Abrasion（摩耗） | 0.9560 | 0.9195 | 0.8911 | 0.0186 |
-| Transparent Stain（半透明染み） | 0.9816 | 0.9651 | 0.9357 | 0.0107 |
-
-> **考察**: Input Dropout（CoarseDropout）を追加することで F1=0.9719 / Hard IoU=0.9504 を達成。境界が明確な Ghosting・Transparent で特に高精度。Abrasion は摩耗によるストロークの細さが損傷ノイズと類似するため若干低下。
+> **考察**: Coarse Dropout により、モデルが局所ピクセル強度だけでなく周辺の文脈情報からストローク位置を推定するよう促され、F1=0.9719 / Hard IoU=0.9504 を達成。
 
 ---
 
-### 🖼 Stage 2 — 修復精度（full_padded データセット）
+### 🖼 Stage 2 — 修復精度（ひらがな全文字、5種損傷データセット）
 
 マスク条件 3種類で 5 モデルを比較：**NoMask**（ガイドなし）/ **PredMask**（提案手法）/ **GTMask**（理論上限）  
-**太字**・<u>下線</u>は PredMask 条件内でそれぞれ 1 位・2 位を示します。
+**太字**・<u>下線</u>は各マスク条件内でそれぞれ 1 位・2 位を示します。OCR精度はひらがな78クラスの ResNet-18 分類器で評価（ピーク検証精度 98.7%）。
 
 | モデル | 条件 | mPSNR↑ | mSSIM↑ | LPIPS↓ | OCR精度↑ |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **MPRNet** | NoMask | 33.32 | 0.9613 | 0.0222 | 97.86% |
+| **MPRNet** | NoMask | 33.32 | 0.9613 | <u>0.0222</u> | <u>97.86%</u> |
 | | **PredMask (提案)** | **33.50** | <u>0.9627</u> | <u>0.0215</u> | **97.97%** |
-| | GTMask (上限) | 35.92 | 0.9769 | 0.0158 | 98.38% |
-| **NAFNet** | NoMask | 33.49 | 0.9622 | 0.0221 | 97.91% |
-| | **PredMask (提案)** | <u>33.21</u> | 0.9609 | **0.0205** | **97.97%** |
-| | GTMask (上限) | 33.89 | 0.9705 | 0.0189 | 98.39% |
-| **SwinIR** | NoMask | 33.44 | 0.9618 | 0.0227 | 97.83% |
+| | GTMask (上限) | <u>35.92</u> | <u>0.9769</u> | **0.0158** | 98.38% |
+| **MambaIR** | NoMask | 33.99 | 0.9653 | 0.0236 | 97.35% |
+| | **PredMask (提案)** | 34.10 | 0.9660 | 0.0230 | 97.35% |
+| | GTMask (上限) | **36.66** | **0.9805** | <u>0.0178</u> | <u>97.80%</u> |
+| **SwinIR** | NoMask | <u>33.44</u> | <u>0.9618</u> | 0.0227 | 97.83% |
 | | **PredMask (提案)** | **33.50** | **0.9632** | 0.0229 | <u>97.96%</u> |
-| | GTMask (上限) | 35.94 | 0.9780 | 0.0174 | 98.42% |
-| **Restormer** | NoMask | 30.64 | 0.9543 | 0.0293 | 97.91% |
+| | GTMask (上限) | **35.94** | **0.9780** | <u>0.0174</u> | **98.42%** |
+| **Restormer** | NoMask | 30.64 | 0.9543 | 0.0293 | **97.91%** |
 | | **PredMask (提案)** | 31.47 | 0.9532 | 0.0289 | 97.92% |
 | | GTMask (上限) | 33.17 | 0.9692 | 0.0229 | 98.36% |
-| **MambaIR** ¹ | NoMask | 37.45 | 0.9695 | 0.02356 | 97.35% |
-| | **PredMask (提案)** | 37.53 | 0.9699 | 0.02296 | 97.35% |
-| | GTMask (上限) | **39.71** | **0.9754** | **0.01783** | **97.80%** |
+| **NAFNet** | NoMask | **33.49** | **0.9622** | **0.0221** | **97.91%** |
+| | **PredMask (提案)** | <u>33.21</u> | 0.9609 | **0.0205** | **97.97%** |
+| | GTMask (上限) | 33.89 | 0.9705 | 0.0189 | <u>98.39%</u> |
+| GT | — | — | — | — | 98.36% |
+| LQ (損傷入力) | — | 19.33 | 0.7168 | 0.2855 | 81.23% |
 
-¹ MambaIR のみ `hiragana_fulldataset_5stain` データセットで評価（他は `full_padded`）。
-
-> **考察**: PredMask 条件は NoMask を上回るケースが多く、Stage 1 で得た損傷情報が復元に有効に機能していることを確認。GTMask とのギャップは Stage 1 精度改善の余地を示しており、今後の課題として位置づけています。
+> **考察**: NAFNet は PredMask 条件で LPIPS=0.0205（最良）・OCR=97.97%（最良タイ）を達成。局所ゲーティング機構が不完全マスクによる誤差伝播を抑制するため、実用条件で最も安定した性能を示す。MambaIR は GTMask 条件で mPSNR・mSSIM が最高値を記録するが、PredMask への性能低下幅（36.66→34.10 dB）が最大であり、SSM の大域受容野がマスク不精度に敏感であることを示す。GTMask–PredMask ギャップは Stage 1 精度が依然としてパイプライン全体のボトルネックであることを示す。
 
 ---
 
@@ -143,30 +134,32 @@ UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフト�
 | 項目 | 内容 |
 |:---|:---|
 | **アーキテクチャ** | ResNet-18（ImageNet事前学習済み、最終FC層を差し替えてFine-tuning） |
-| **分類クラス数** | 78クラス（ひらがな文字種、ファイル名のUnicodeプレフィックスから自動取得） |
+| **分類クラス数** | 78クラス（ひらがな文字種） |
 | **学習データ** | 訓練: 108,536枚 / 検証: 13,567枚 |
 | **入力前処理** | グレースケール→RGB変換、224×224リサイズ、RandomRotation (±10°)・RandomAffine (translate=0.1)・ImageNet正規化 |
 | **最適化** | SGD (momentum=0.9, weight_decay=1e-4)、ReduceLROnPlateau (factor=0.1, patience=2) |
 | **Early Stopping** | patience=5、Epoch 12 で収束 |
-| **検証精度** | **98.72%** |
+| **検証精度** | **98.7%** |
 
-> 実装: [models/classifier/train_classifier.py](models/classifier/train_classifier.py) / 推論: [models/classifier/evaluate_restoration_local.py](models/classifier/evaluate_restoration_local.py)
+> 実装: [models/classifier/train_classifier.py](models/classifier/train_classifier.py) / 推論: [models/classifier/evaluate_restoration_hiragana.py](models/classifier/evaluate_restoration_hiragana.py)
 
-この分類器を復元画像に適用してOCR精度を算出することで、復元手法の「文字認識への実用的な貢献度」を定量評価しています。HorizontalFlipを意図的に除外するなど、くずし字の方向性を考慮したAugmentation設計も行いました。
+この分類器を復元画像に適用してOCR精度を算出することで、復元手法の「文字認識への実用的な貢献度」を定量評価しています。ただし評価を78クラスのひらがなに限定しているため、損傷入力でも81.23%という比較的高いベースラインとなり、アーキテクチャ間の差が圧縮される点に注意が必要です。より広い文字種での評価により、モデル間の差異がより明確に現れることが期待されます。
 
 ---
 
-### 4. 計算効率（NVIDIA RTX A6000、$128 \times 128 \times 4$ 入力）
+### 4. 計算効率（NVIDIA RTX A6000、128×128×4 入力）
+
+**太字**・<u>下線</u>は各指標の 1 位・2 位を示します。
 
 | モデル | パラメータ数 (M)↓ | FLOPs (G)↓ | レイテンシ (ms)↓ |
 | :--- | :---: | :---: | :---: |
-| **MPRNet** | 20.13 | 141.6 | <u>12.5</u> |
-| **SwinIR** | <u>11.90</u> | 49.3 | 28.2 |
-| **Restormer** | 26.10 | <u>16.1</u> | 18.4 |
-| **NAFNet** | **9.25** | **14.8** | **8.1** |
-| **MambaIR** | 1.48 | — | — |
+| **MPRNet** | <u>2.94</u> | 132.3 | <u>27.9</u> |
+| **MambaIR** | **1.48** | <u>21.9</u> | 69.5 |
+| **SwinIR** | 11.90 | 29.4 | 56.7 |
+| **Restormer** | 26.13 | 85.9 | 64.4 |
+| **NAFNet** | 29.16 | **8.0** | **24.6** |
 
-> NAFNet は最軽量かつ最速でありながら、LPIPS・OCR精度でも競合するパフォーマンスを発揮。**精度と効率のバランスに最も優れたモデル**と評価しています。
+> NAFNet はパラメータ数は最大だが、FLOPs=8.0G・レイテンシ=24.6ms で最も高速かつ低計算コスト。LPIPS・OCR精度でも最良であり、**大規模デジタル化ワークフローにおいて精度と効率のバランスに最も優れたモデル**と評価しています。
 
 ---
 
@@ -287,7 +280,7 @@ python scripts/evaluation/calculate_5metrics.py \
     --output_csv outputs/nafnet_metrics.csv \
     --use_wandb
 ```
-
+env COPYFILE_DISABLE=1 tar --no-xattrs -c -f - -C /Users/imoto/dev/research/full_nafnet_nomask_charbpercep/full_nafnet_nomask_charbpercep . | pv | ssh -p 20010 imoto@172.24.160.42 "mkdir -p /home/imoto/Kuzushiji_Restoration/outputs/full_nafnet_nomask_charbpercep && tar -x -f - -C /home/imoto/Kuzushiji_Restoration/outputs/full_nafnet_nomask_charbpercep 2>/dev/null"
 ---
 
 ## 📚 参考文献
