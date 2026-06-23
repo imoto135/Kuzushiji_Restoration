@@ -1,5 +1,3 @@
-# ------------------------------------------------------------------------
-print("DEBUG: Very beginning of train.py", flush=True)
 import argparse
 import datetime
 import logging
@@ -160,10 +158,7 @@ def create_train_val_dataloader(opt, logger):
 
 
 def main():
-    print("DEBUG: Starting main", flush=True)
-    # parse options, set distributed setting, set ramdom seed
     opt = parse_options(is_train=True)
-    print("DEBUG: Options parsed", flush=True)
 
     torch.backends.cudnn.benchmark = True
     # torch.backends.cudnn.deterministic = True
@@ -178,7 +173,7 @@ def main():
 
     resume_state = None
     if len(states) > 0:
-        print('!!!!!! resume state .. ', states, state_folder_path)
+        logging.info(f'Resuming from state: {state_folder_path}')
         max_state_file = '{}.state'.format(max([int(x[0:-6]) for x in states]))
         resume_state = os.path.join(state_folder_path, max_state_file)
         opt['path']['resume_state'] = resume_state

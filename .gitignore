@@ -62,7 +62,9 @@ outputs/*
 !outputs/sample_results/*.jpg
 !outputs/.gitkeep
 *.jpg
-*.png   
+*.png
+!images/*.png
+!images/*.jpg
 # Archive
 archive/
 data/

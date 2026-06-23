@@ -12,18 +12,18 @@
 
 ---
 
-## 🔍 プロジェクト概要 (What & Why)
+## プロジェクト概要
 
-歴史的な日本語文書（くずし字）は文化研究において非常に重要ですが、経年劣化（染み・欠損・にじみ等）によって可読性が大きく損なわれています。本プロジェクトでは、**「まず損傷箇所を検出し、その情報を使って復元する」という二段階アプローチ**を独自設計し、4種の最先端アーキテクチャで比較検証しました。
+歴史的な日本語文書（くずし字）は文化研究において非常に重要ですが、経年劣化（染み・欠損・にじみ等）によって可読性が大きく損なわれています。本プロジェクトでは、**「まず文字領域を推測し、その情報をヒントとして復元する」という二段階アプローチ**を独自設計し、5種の最先端アーキテクチャで比較検証しました。
 
 **このプロジェクトで取り組んだ主なチャレンジ：**
 - 汎用的な画像復元手法をドメイン固有（筆跡・細線）問題に適応させる
-- ハードマスクではなくソフトマスクを導入し、劣化の曖昧さに対応
+- ハードマスクではcなくソフトマスクを導入し、劣化の曖昧さに対応
 - OCR精度という実用指標まで含めた多面的な評価体制の構築
 
 ---
 
-## 🎬 結果
+## 結果
 
 ### 対象とする劣化パターン
 
@@ -31,7 +31,7 @@
   <img src="images/damage_examples.png" width="85%" alt="損傷実例">
 </p>
 <p align="center">
-  <em>(a) Stain &nbsp;|&nbsp; (b) Transparent Stain &nbsp;|&nbsp; (c) Missing &nbsp;|&nbsp; (d) Ghosting &nbsp;|&nbsp; (e) Abrasion</em><br>
+  <em>(a) 汚れ(Stain) &nbsp;|&nbsp; (b) 半透明汚れ(Transparent Stain) &nbsp;|&nbsp; (c) 欠損(Missing) &nbsp;|&nbsp; (d) 裏写り(Ghosting) &nbsp;|&nbsp; (e)摩耗(Abrasion)</em><br>
   <sub>実際の古典文書に見られる5種類の物理的劣化。繊細な筆跡と重なるため、原本の墨跡との区別が困難。</sub>
 </p>
 
@@ -40,12 +40,12 @@
 <p align="center">
   <img src="images/chart_overview.png" width="30%" alt="フレームワーク概要図">
   &nbsp;&nbsp;
-  <img src="images/stage1_result.png" width="30%" alt="Stage 1 損傷検出結果">
+  <img src="images/stage1_result.png" width="30%" alt="Stage 1 文字領域推定結果">
   &nbsp;&nbsp;
-  <img src="images/stage2_result.png" width="30%" alt="Stage 2 復元結果">
+  <img src="images/stage2_hiragana_5model_result.png" width="30%" alt="Stage 2 復元結果">
 </p>
 <p align="center">
-  <em>左: フレームワーク概要 &nbsp;|&nbsp; 中: Stage 1 損傷検出 &nbsp;|&nbsp; 右: Stage 2 復元結果</em>
+  <em>左: フレームワーク概要 &nbsp;|&nbsp; 中: Stage 1 文字領域推定 &nbsp;|&nbsp; 右: Stage 2 復元結果</em>
 </p>
 
 ---
@@ -58,14 +58,14 @@
 損傷画像 (RGB)
     │
     ▼
-[Stage 1] UNet++ → ソフト損傷マスク  M̂ ∈ [0, 1]
+[Stage 1] UNet++ → 文字領域ソフトマスク  M̂ ∈ [0, 1]
     │
     ▼ (RGB + Mask = 4ch入力)
 [Stage 2] NAFNet / SwinIR / Restormer / MPRNet / MambaIR → 復元画像
 ```
 
-**🔎 Stage 1 — 損傷局所化**  
-UNet++ をベースに、ピクセルごとの劣化確率を表す**ソフトマスク**を生成。バイナリマスクでは表現できない「グラデーションのある損傷領域」を扱えるよう設計しました。
+**🔎 Stage 1 — 文字領域推定**  
+UNet++ をベースに、ピクセルごとの文字領域確率を表す**ソフトマスク**を生成。バイナリマスクでは表現できない「グラデーションのある文字領域境界」を扱えるよう設計しました。
 
 **🛠 Stage 2 — マスクガイド付き復元**  
 予測マスクを第4チャンネルとして結合した **4ch入力**を採用し、損傷箇所の情報を復元モデルに明示的に与えます。
@@ -197,7 +197,7 @@ Kuzushiji_Restoration/
 │   ├── restormer/             # Restormer 実装
 │   ├── mprnet/                # MPRNet 実装
 │   ├── mamba/                 # MambaIR 実装
-│   ├── unet++/                # Stage 1: 損傷マスク検出
+│   ├── unet++/                # Stage 1: 文字領域推定
 │   ├── classifier/            # OCR評価用分類器
 │   └── joint/                 # Joint End-to-End 学習
 ├── scripts/
@@ -218,69 +218,101 @@ Kuzushiji_Restoration/
 
 ### 環境構築
 
-**Option A: Docker（推奨）**
+**Conda（推奨）**
+
+```bash
+git clone https://github.com/imoto135/Kuzushiji_Restoration.git
+cd Kuzushiji_Restoration
+conda create -n nafnet_env python=3.10
+conda activate nafnet_env
+conda install pytorch==2.5.1 torchvision==0.20.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+pip install numpy==1.26.4 opencv-python Pillow pyyaml tqdm scipy scikit-image \
+            matplotlib lpips thop wandb einops timm addict future lmdb ipython \
+            segmentation-models-pytorch albumentations
+```
+
+**Docker**（`docker` コマンドが利用可能な環境のみ）
 
 ```bash
 docker compose build
 docker compose run --rm kuzushiji bash
 ```
 
-コンテナ内では `/workspace/Kuzushiji_Restoration` にリポジトリが配置されます。
-
-**Option B: Conda**
-
-```bash
-git clone https://github.com/imoto135/Kuzushiji_Restoration.git
-cd Kuzushiji_Restoration
-conda env create -f environments/env_restoration.yml
-conda activate nafnet2
-```
-
 ### データ前処理
 
 ```bash
-python scripts/data_preprocessing/01_pad_images.py          # パディング
-python scripts/data_preprocessing/02_generate_otsu_masks.py # GTマスク生成
+python scripts/data_preprocessing/01_pad_images.py          # パディング・128×128リサイズ
+python scripts/data_preprocessing/02_generate_otsu_masks.py # GTマスク生成 (Otsu二値化)
 python scripts/data_preprocessing/03_add_stain_5types.py    # 劣化合成 (5種)
+```
+
+### 学習
+
+重みファイルは容量の都合上リポジトリに含めていません。以下の手順で再現できます。
+
+**Stage 1: UNet++ （文字領域推定）**
+
+```bash
+python models/unet++/train.py \
+    --data_dir data \
+    --output_dir models/unet++/experiments/unet++_kuzushiji \
+    --epochs 50 --batch_size 16
+```
+
+**Stage 2: NAFNet （復元モデル）**
+
+```bash
+# BasicSR の設定ファイルを使用
+python models/nafnet/run_train.py \
+    -opt models/nafnet/options/Kuzushiji/NAFNet_Kuzushiji_predmask.yml
+```
+
+**Stage 2: MambaIR**
+
+```bash
+python models/mamba/train_mamba_5stain.py \
+    --data_dir data \
+    --mask_type predmask \
+    --output_dir models/mamba/experiments/MambaIR_5stain_Predmask
 ```
 
 ### 推論
 
 ```bash
-# Stage 1: 損傷マスク予測
+# Stage 1: 文字領域マスク予測
 python scripts/inference/predict_mask_unetpp.py \
-    --input_dir data/full_padded/lq \
-    --output_dir outputs/pred_masks_unetpp \
-    --model_path models/unet++/experiments/unet++_full_characters/best_model.pth
+    --input_dir data/lq/test \
+    --output_dir data/pred_mask/test \
+    --model_path models/unet++/experiments/unet++_kuzushiji/best_model.pth
 
 # Stage 2: NAFNet による復元
 python scripts/restore.py \
     --model_type nafnet \
-    --weights path/to/nafnet_checkpoint.pth \
-    --input_dir data/full_padded/lq/test \
+    --weights models/nafnet/experiments/NAFNet_predmask/best_model.pth \
+    --input_dir data/lq/test \
     --output_dir outputs/nafnet_test \
-    --mask_dir data/full_padded/pred_mask/test
+    --mask_dir data/pred_mask/test
 
-# Stage 2: MambaIR による復元 (5stainデータセット)
+# Stage 2: MambaIR による復元
 python models/mamba/restore_mamba_5stain.py \
     --mask_type predmask \
     --weights models/mamba/experiments/MambaIR_5stain_Predmask/best_model.pth \
-    --input_dir data/hiragana_fulldataset_5stain/lq/test \
-    --mask_dir  data/hiragana_fulldataset_5stain/pred_mask/test \
-    --output_dir outputs/mamba_5stain/predmask/test
+    --input_dir data/lq/test \
+    --mask_dir  data/pred_mask/test \
+    --output_dir outputs/mambair_test
 ```
 
 ### 評価
 
 ```bash
 python scripts/evaluation/calculate_5metrics.py \
-    --gt_dir data/full_padded/gt/test \
+    --gt_dir data/gt/test \
     --pred_dir outputs/nafnet_test \
-    --mask_dir data/full_padded/gt_mask/test \
+    --mask_dir data/gt_mask/test \
     --output_csv outputs/nafnet_metrics.csv \
     --use_wandb
 ```
-env COPYFILE_DISABLE=1 tar --no-xattrs -c -f - -C /Users/imoto/dev/research/full_nafnet_nomask_charbpercep/full_nafnet_nomask_charbpercep . | pv | ssh -p 20010 imoto@172.24.160.42 "mkdir -p /home/imoto/Kuzushiji_Restoration/outputs/full_nafnet_nomask_charbpercep && tar -x -f - -C /home/imoto/Kuzushiji_Restoration/outputs/full_nafnet_nomask_charbpercep 2>/dev/null"
+
 ---
 
 ## 📚 参考文献
