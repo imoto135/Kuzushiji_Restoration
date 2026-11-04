@@ -64,6 +64,7 @@ outputs/*
 *.jpg
 *.png
 !images/*.png
+!ya_example/*.png
 !images/*.jpg
 # Archive
 archive/

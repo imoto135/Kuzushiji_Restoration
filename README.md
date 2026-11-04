@@ -36,6 +36,29 @@
   <sub>実際の古典文書に見られる5種類の物理的劣化。繊細な筆跡と重なるため、原本の墨跡との区別が困難。</sub>
 </p>
 
+### 欠けた筆画を文字領域の推定で補う：くずし字「や」の復元例
+
+中央の筆画が欠けた「や」を、同じNAFNet・Charbonnier＋Perceptual損失で復元した比較です。推定文字領域マスクを用いるモデル（predmask）と、マスクを用いないモデル（nomask）を並べています。
+
+<table>
+  <tr><th>損傷入力</th><th>推定文字領域マスク</th><th>マスクなし（nomask）</th><th>推定マスクあり（predmask）</th><th>正解画像（GT）</th></tr>
+  <tr>
+    <td><img src="ya_example/input.png" width="160" alt="中央の筆画が欠けたくずし字のや"></td>
+    <td><img src="ya_example/U+3084_200003803_00028_2_X0945_Y1023_Missing_predmask.png" width="160" alt="損傷入力から推定された文字領域マスク"></td>
+    <td><img src="ya_example/restored_nomask.png" width="160" alt="マスクなしNAFNetによる復元結果"></td>
+    <td><img src="ya_example/restored_predmask.png" width="160" alt="推定マスクを用いたNAFNetによる復元結果"></td>
+    <td><img src="ya_example/U+3084_200003803_00028_2_X0945_Y1023_gt.png" width="160" alt="損傷前の正解画像"></td>
+  </tr>
+</table>
+
+推定マスクありの復元では、中央から下へ伸びる縦画が正解画像に近い形で再現されています。**文字領域の推定を復元の手がかりにする効果**を確認できる例です。
+
+| 評価指標（この画像1枚） | マスクなし | 推定マスクあり |
+|---|---:|---:|
+| LPIPS ↓ | 0.2027 | **0.0721** |
+
+この例ではLPIPSが約**64.4%低下**しました。値は各モデルの既存評価CSVに基づきます。単一画像の比較であり、データセット全体の改善率やOCR認識精度の向上を示すものではありません。
+
 ### フレームワーク結果
 
 <p align="center">
