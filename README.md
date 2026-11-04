@@ -40,22 +40,22 @@
 
 中央の筆画が欠けた「や」を、同じNAFNet・Charbonnier＋Perceptual損失で復元した比較です。推定文字領域マスクを用いるモデル（predmask）と、マスクを用いないモデル（nomask）を並べています。
 
-<table>
-  <tr><th>損傷入力</th><th>推定文字領域マスク</th><th>マスクなし（nomask）</th><th>推定マスクあり（predmask）</th><th>正解画像（GT）</th></tr>
-  <tr>
-    <td><img src="ya_example/input.png" width="160" alt="中央の筆画が欠けたくずし字のや"></td>
-    <td><img src="ya_example/U+3084_200003803_00028_2_X0945_Y1023_Missing_predmask.png" width="160" alt="損傷入力から推定された文字領域マスク"></td>
-    <td><img src="ya_example/restored_nomask.png" width="160" alt="マスクなしNAFNetによる復元結果"></td>
-    <td><img src="ya_example/restored_predmask.png" width="160" alt="推定マスクを用いたNAFNetによる復元結果"></td>
-    <td><img src="ya_example/U+3084_200003803_00028_2_X0945_Y1023_gt.png" width="160" alt="損傷前の正解画像"></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="ya_example/comparison_strip.png" width="800" alt="左から、損傷入力・推定文字領域マスク・マスクなし復元・推定マスクあり復元・正解画像。各画像は同じ128×128ピクセル。">
+</p>
+<p align="center"><sub>左から：損傷入力 ｜ 推定文字領域マスク ｜ マスクなし ｜ 推定マスクあり ｜ 正解画像（GT）</sub></p>
 
 推定マスクありの復元では、中央から下へ伸びる縦画が正解画像に近い形で再現されています。**文字領域の推定を復元の手がかりにする効果**を確認できる例です。
 
 | 評価指標（この画像1枚） | マスクなし | 推定マスクあり |
 |---|---:|---:|
 | LPIPS ↓ | 0.2027 | **0.0721** |
+| PSNR ↑ (dB) | 18.9787 | **22.0011** |
+| SSIM ↑ | 0.8264 | **0.8672** |
+| Masked PSNR ↑ (dB) | 11.7308 | **16.7141** |
+| Masked SSIM ↑ | 0.6098 | **0.7086** |
+
+Masked指標は正解文字領域マスクを用いた評価です。↑は高いほど、↓は低いほど良い値を示します。
 
 この例ではLPIPSが約**64.4%低下**しました。値は各モデルの既存評価CSVに基づきます。単一画像の比較であり、データセット全体の改善率やOCR認識精度の向上を示すものではありません。
 
