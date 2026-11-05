@@ -18,6 +18,9 @@
 
 **元画像（正解画像・GT）**は、人工的な劣化を加える前の画像を指します。Stage 1では元画像から作った文字領域マスク、Stage 2では元画像そのものを正解として学習します。
 
+<details>
+<summary>処理の流れを見る</summary>
+
 ```text
 損傷画像 LQ（RGB、128×128）
     │
@@ -29,6 +32,8 @@
                          │
                     復元画像（RGB、3ch）
 ```
+
+</details>
 
 マスクは**文字領域（文字=1、背景=0）**を表します。Stage 1とStage 2はそれぞれ別に学習します。
 
@@ -47,6 +52,19 @@
 
 ## 実験データ
 
+ひらがな78クラスの単文字画像（128×128）を対象に、汚れ・半透明汚れ・欠損・裏写り・摩耗の5種類を合成します。
+
+<p align="center">
+  <img src="images/damage_examples.png" width="85%" alt="損傷実例">
+</p>
+<p align="center">
+  <em>(a) 汚れ(Stain) &nbsp;|&nbsp; (b) 半透明汚れ(Transparent Stain) &nbsp;|&nbsp; (c) 欠損(Missing) &nbsp;|&nbsp; (d) 裏写り(Ghosting) &nbsp;|&nbsp; (e)摩耗(Abrasion)</em><br>
+  <sub>実際の古典文書に見られる5種類の物理的劣化。繊細な筆跡と重なるため、原本の墨跡との区別が困難。</sub>
+</p>
+
+<details>
+<summary>データ分割・前処理・劣化合成の詳細</summary>
+
 ### データと分割
 
 | 項目 | 内容・確認元 |
@@ -63,14 +81,6 @@
 
 実験機材は原稿にNVIDIA RTX A6000×2（各48 GB）と記載されています。現行のBasicSR系設定は1実験あたりGPU 1枚です。
 
-<p align="center">
-  <img src="images/damage_examples.png" width="85%" alt="損傷実例">
-</p>
-<p align="center">
-  <em>(a) 汚れ(Stain) &nbsp;|&nbsp; (b) 半透明汚れ(Transparent Stain) &nbsp;|&nbsp; (c) 欠損(Missing) &nbsp;|&nbsp; (d) 裏写り(Ghosting) &nbsp;|&nbsp; (e)摩耗(Abrasion)</em><br>
-  <sub>実際の古典文書に見られる5種類の物理的劣化。繊細な筆跡と重なるため、原本の墨跡との区別が困難。</sub>
-</p>
-
 ### 劣化合成
 
 [03_add_stain_5types.py](scripts/data_preprocessing/03_add_stain_5types.py)は、**元画像1枚につき以下の5種類から1つをランダムに選んで1枚生成**します。
@@ -85,11 +95,16 @@
 
 劣化合成の乱数seedの既定値は42です。画像の列挙順は固定されていません。
 
+</details>
+
 ## Stage 1：文字領域推定
 
 ### 目的とモデル
 
 損傷RGB画像から、元画像に存在する文字領域を推定します。元画像のOtsuマスクを教師にすることで、劣化箇所を人手でラベル付けせずに学習できます。出力はsigmoid確率で、Stage 2には二値化せずに渡します。
+
+<details>
+<summary>Stage 1のモデル構成・学習設定・評価方法</summary>
 
 ### 現行コードの学習設定
 
@@ -114,6 +129,8 @@
 
 評価はF1・Hard IoU（閾値0.5）、Soft IoU・MAE（確率値）を使用します。学習時の検証IoUはバッチ単位、結果評価は画像単位で集計します。
 
+</details>
+
 ### Stage 1の報告結果
 
 モデル選定は8クラスで実施した報告値です。
@@ -130,7 +147,7 @@
 > Coarse Dropoutを加えた既存報告ではF1=0.9719 / Hard IoU=0.9504でした。周辺の文脈から筆画を補う効果が考えられますが、数値だけで内部機構を特定したものではありません。
 
 <details>
-<summary><strong>UNet++ 内部構造アブレーション（クリックで展開）</strong></summary>
+<summary>UNet++の内部構造アブレーションを見る</summary>
 
 UNet++ (Encoder: SE-ResNeXt50) に対し、構造・正則化の各変更が精度に与える影響を体系的に検証しました。
 
@@ -163,6 +180,9 @@ UNet++ (Encoder: SE-ResNeXt50) に対し、構造・正則化の各変更が精�
 | GTMask | 損傷RGB + 元画像由来のOtsuマスク、4ch | 正解文字領域を与える参照条件。実運用時には利用不可 |
 
 GTMaskは「正解マスクを与えた比較」であり、すべての指標の理論的上限を保証するものではありません。RGB・マスクを[0,1]にスケーリングし、3chの元画像（RGB）を教師にします。
+
+<details>
+<summary>Stage 2のモデル構成・損失関数・学習設定</summary>
 
 ### アーキテクチャの設定
 
@@ -198,8 +218,7 @@ PredMaskの代表設定を示します。モデル間・マスク条件間で学
 | Restormer [設定](configs/restormer/restormer_charb_percep.yml) | 8 | 2e-4 | 200,000 iter | 2,500 | 設定なし |
 | MambaIR [コード](models/mamba/train_mamba_5stain.py) | 16 | 2e-4 | 200,000 iter | 5,000 | 実装なし、検証PSNR最高を保存 |
 
-<details>
-<summary>Optimizer・拡張・条件別の設定詳細</summary>
+### Optimizer・拡張・条件別の設定詳細
 
 OptimizerはすべてAdamWです。
 
@@ -233,6 +252,11 @@ Restormer NoMaskの[別設定](models/nafnet/options/Kuzushiji/restormer_nomask_
 
 </details>
 
+評価は文字領域の画質（mPSNR・mSSIM）、知覚品質（LPIPS）、文字認識精度で行います。↑は高いほど、↓は低いほど良い値です。
+
+<details>
+<summary>評価指標・文字認識用分類器の詳細</summary>
+
 ### 評価方法
 
 確認元：[calculate_5metrics.py](scripts/evaluation/calculate_5metrics.py)。評価マスクは全条件で**GTの文字領域マスク**を使います。
@@ -250,9 +274,6 @@ Restormer NoMaskの[別設定](models/nafnet/options/Kuzushiji/restormer_nomask_
 ### 文字認識評価（OCR精度）
 
 復元した単文字をResNet-18で分類し、78クラスの正解率を測定します。報告されたピーク検証精度は98.7%です。
-
-<details>
-<summary>文字認識評価用の分類器設定</summary>
 
 連続文書の翻刻精度ではなく、復元した**単文字の78クラス分類Accuracy**で評価します。確認元：[train_classifier.py](models/classifier/train_classifier.py) / [evaluate_restoration_hiragana.py](models/classifier/evaluate_restoration_hiragana.py)。
 
@@ -273,8 +294,18 @@ Restormer NoMaskの[別設定](models/nafnet/options/Kuzushiji/restormer_nomask_
 
 ひらがな78クラス・5種類の劣化に対する報告値です。
 
-マスク条件 3種類で 5 モデルを比較：**NoMask**（ガイドなし）/ **PredMask**（提案手法）/ **GTMask**（正解文字領域を与える参照条件）
-OCR精度はひらがな78クラスのResNet-18分類器で評価（既存報告のピーク検証精度98.7%）。
+以下は予測マスクを用いる**PredMask**の比較です。太字は各指標の最高値を示します。
+
+| モデル（PredMask） | mPSNR ↑ | mSSIM ↑ | LPIPS ↓ | OCR精度 ↑ |
+|---|---:|---:|---:|---:|
+| MPRNet | 33.50 | 0.9627 | 0.0215 | **97.97%** |
+| MambaIR | **34.10** | **0.9660** | 0.0230 | 97.35% |
+| SwinIR | 33.50 | 0.9632 | 0.0229 | 97.96% |
+| Restormer | 31.47 | 0.9532 | 0.0289 | 97.92% |
+| NAFNet | 33.21 | 0.9609 | **0.0205** | **97.97%** |
+
+<details>
+<summary>NoMask・PredMask・GTMaskの全比較結果</summary>
 
 | モデル | 条件 | mPSNR↑ | mSSIM↑ | LPIPS↓ | OCR精度↑ |
 | :--- | :--- | :---: | :---: | :---: | :---: |
@@ -296,10 +327,12 @@ OCR精度はひらがな78クラスのResNet-18分類器で評価（既存報告
 | GT | — | — | — | — | 98.36% |
 | LQ (損傷入力) | — | 19.33 | 0.7168 | 0.2855 | 81.23% |
 
+</details>
+
 > PredMaskではNAFNetのLPIPS=0.0205が最小、OCR=97.97%はMPRNetと同率です。一方、NAFNetのmPSNRはNoMaskより低く、マスク利用による改善は指標・モデルによって異なります。表の差だけからアーキテクチャ固有の誤差伝播機構を特定することはできません。
 
 <details>
-<summary><strong>Stage 2 損失関数・マスク戦略アブレーション（NAFNet、クリックで展開）</strong></summary>
+<summary>損失関数・マスク戦略のアブレーションを見る（NAFNet）</summary>
 
 NAFNet を用いて損失関数とマスク入力戦略の各変種を比較しました。
 
@@ -340,6 +373,9 @@ NAFNet を用いて損失関数とマスク入力戦略の各変種を比較し�
 
 推定マスクありの復元では、中央から下へ伸びる縦画が正解画像に近い形で再現されています。**文字領域の推定を復元の手がかりにする効果**を確認できる例です。
 
+<details>
+<summary>復元例の評価値を見る</summary>
+
 | 評価指標（この画像1枚） | マスクなし | 推定マスクあり |
 |---|---:|---:|
 | LPIPS ↓ | 0.2027 | **0.0721** |
@@ -352,6 +388,8 @@ Masked指標は正解文字領域マスクを用いた評価です。↑は高�
 
 この例ではLPIPSが約**64.4%低下**しました。値は各モデルの既存評価CSVに基づきます。単一画像の比較であり、データセット全体の改善率やOCR認識精度の向上を示すものではありません。
 
+</details>
+
 ### 失敗例：不透明な汚れで隠れた筆画の復元
 
 不透明な汚れ（Stain）を加えた画像の復元例です。同じNAFNet・Charbonnier＋Perceptual損失で、マスクなしと推定マスクありを比較しています。
@@ -363,6 +401,9 @@ Masked指標は正解文字領域マスクを用いた評価です。↑は高�
 
 マスクなしでは中央の筆画がつながっていますが、**推定マスクありでは筆画の一部が途切れています**。文字領域の再現性を表すMasked SSIMも低下した例です。
 
+<details>
+<summary>失敗例の評価値・対象画像を見る</summary>
+
 | 評価指標 | マスクなし | 推定マスクあり |
 |---|---:|---:|
 | LPIPS ↓ | 0.0654 | 0.1894 |
@@ -372,6 +413,11 @@ Masked指標は正解文字領域マスクを用いた評価です。↑は高�
 | Masked SSIM ↑ | 0.6012 | 0.3388 |
 
 評価値は既存の評価CSVに基づきます（[対象画像・評価値](images/failure_examples/metrics.json)）。差が大きい1例であり、平均性能や失敗頻度を表すものではありません。推定マスクと正解画像の直接比較は行っていないため、失敗原因は未特定です。
+
+</details>
+
+<details>
+<summary>計算量・推論速度の比較を見る</summary>
 
 ### Stage 2の計算効率（NVIDIA RTX A6000、128×128×4 入力）
 
@@ -387,14 +433,18 @@ Masked指標は正解文字領域マスクを用いた評価です。↑は高�
 
 > NAFNet はパラメータ数は最大だが、FLOPs=8.0G・レイテンシ=24.6ms で最も高速かつ低計算コスト。LPIPS・OCR精度でも最良であり、**大規模デジタル化ワークフローにおいて精度と効率のバランスに最も優れたモデル**と評価しています。
 
+</details>
+
 ## 要確認事項
+
+原稿と現行コードには一部の設定・データ件数に差があり、報告結果との対応が未確定の項目があります。
+
+<details>
+<summary>設定の食い違い・未確認項目を見る</summary>
 
 - **Stage 1の構成**：報告ではscSEを不採用、現行コードでは有効。バッチサイズも原稿16・コード256と異なります。
 - **Stage 2の条件**：原稿とYAMLで学習率・バッチサイズ・早期終了条件に差があります。MambaIRの知覚損失も他4モデルとは異なります。
 - **データ・結果の対応**：資料間でデータ件数が異なり、結果表の全条件について使用設定・重み・評価画像の対応は未確定です。
-
-<details>
-<summary>確認が必要な項目の詳細</summary>
 
 | 項目 | 確認できない点・食い違い |
 |---|---|
@@ -447,6 +497,9 @@ Kuzushiji_Restoration/
 
 </details>
 
+<details>
+<summary>参考文献・データセット</summary>
+
 ## 📚 参考文献
 
 ### モデルアーキテクチャ
@@ -463,6 +516,8 @@ Kuzushiji_Restoration/
 - **くずし字データセット**: 人文学オープンデータ共同利用センター (CODH)
 
 ---
+
+</details>
 
 ## ⚖️ ライセンス
 
